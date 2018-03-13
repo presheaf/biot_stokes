@@ -1,0 +1,116 @@
+
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsbsy}
+
+\setcounter{secnumdepth}{-1}
+
+%% notation
+
+\newcommand{\D}{\ensuremath{\mathbf{D}}}
+\newcommand{\grad}{\ensuremath{\nabla}}
+\renewcommand{\div}{\ensuremath{\nabla \cdot}}
+\newcommand{\inner}[2]{\ensuremath{(#1, #2)}}
+\newcommand{\defeq}{\ensuremath{:=}}
+
+
+\newcommand{\stokes}{\ensuremath{\Omega_{f}}}
+\newcommand{\darcy}{\ensuremath{\Omega_{p}}}
+\newcommand{\interface}{\ensuremath{\Gamma_{fp}}}
+
+
+% fluid test\trial functions
+\newcommand{\uf}{\ensuremath{\mathbf{u}_f}}
+\newcommand{\vf}{\ensuremath{\mathbf{v}_f}}
+\newcommand{\up}{\ensuremath{\mathbf{u}_p}}
+\newcommand{\vp}{\ensuremath{\mathbf{v}_p}}
+
+% pressure test\trial functions
+\newcommand{\pf}{\ensuremath{p_f}}
+\newcommand{\pp}{\ensuremath{p_p}}
+\newcommand{\qf}{\ensuremath{q_f}}
+\newcommand{\qp}{\ensuremath{q_p}}
+
+% displacement test\trial functions
+\newcommand{\disp}{\ensuremath{\boldsymbol{\eta}_p}}
+\newcommand{\disptest}{\ensuremath{\boldsymbol{\xi}_p}}
+
+% multiplier test\trial functions
+\newcommand{\mult}{\ensuremath{\lambda_{\Gamma}}}
+\newcommand{\multtest}{\ensuremath{\mu_{\Gamma}}}
+
+
+
+\begin{document}
+
+\title{Equations for system}
+\maketitle
+
+
+We follow \cite{ambartsumyan} very very closely.
+
+\section{Domain}
+Our domain $\Omega$ is $d=2 \text{ or } 3$-dimensional, and partitioned into \stokes and \darcy, with $\interface = \stokes \cap \darcy$ being the $(d-1)$-dimensional interface. We assume each region is connected, reasonably smooth and all that.
+
+\section{Unknowns}
+The unknowns of the system and the corresponding test functions are:
+
+\begin{itemize}
+\item \uf, \vf : free flow fluid velocity. Defined on \stokes.
+\item \up, \vp : porous flow fluid velocity. Defined on \darcy.
+\item \pf, \qf : free flow fluid pressure. Defined on \stokes.
+\item \pp, \qp : porous flow fluid pressure. Defined on \darcy.
+\item \disp, \disptest : displacement. Defined on \darcy.
+\item \mult, \multtest : normal stress balance Lagrange multiplier. Defined on \interface. In \cite{ambartsumyan}, denoted $\lambda, \mu_h$.
+
+\end{itemize}
+
+\section{Parameters}
+
+\begin{description}
+\item[$\mu_f$] fluid viscosity (denoted $\mu$ in the \cite{ambartsumyan})
+  
+\item[$\lambda_p, \mu_p$] Lamé parameters. Denoted $\mu$ in \cite{ambartsumyan}.
+\item[$\alpha$] Biot-Willis constant
+\item[$K$] Permeability tensor. Symmetric, bounded, positive definite. Probably scalar.
+\end{description}
+
+\section{Notation}
+\begin{itemize}
+\item $\D(\mathbf{v}) \defeq \frac 12 (\grad \mathbf{v} + \grad \mathbf{v}^T)$
+\item $\sigma_f(\uf, \pf) \defeq -\pf \mathbf{I} + 2 \mu_f \D(\uf)$
+\item $\sigma_p(\disp, \pp) \defeq \lambda_p (\div \disp) + 2 \mu_p \D(\disp) - \alpha \pp \mathbf{I} $
+  
+\item $a_f(\uf, \vf) = \inner{2\mu \D(\uf)} {\D(\vf)}_{\stokes}$
+\item $a_p^d(\up, \vp) = \inner{\mu K^{-1}\up} {\vp}_{\darcy}$
+\item $a_p^e(\disp, \disptest) = \inner{\mu_p \D(\disp)} {\D(\disptest)}_{\darcy} + \inner{\lambda_p \div \disp} {\div \disptest}_{\darcy}$
+  
+\end{itemize}
+
+\section{Strong formulation}
+\subsection{Boundary conditions}
+\subsection{Interface conditions}
+
+\section{Variational formulation}
+\subsection{Boundary conditions}
+
+
+
+
+
+
+\section{Thoughts}
+\begin{itemize}
+\item Kent offered very gentle scepticism about using a 3-field formulation, and suggested not having \up as an unknown, using $\up = \grad \pp$ to remove it. I thought \cite{ambartsumyan} had some opinion on this, but on closer reading I can't find it, so maybe that's from another article. I should read up on this.
+ 
+\end{itemize}
+
+\bibliographystyle{amsalpha}
+\begin{thebibliography}{99}
+\bibitem{ambartsumyan}
+{\sc Ambartsumyan, Ilona, et al. }, {\em "A Lagrange multiplier method for a Stokes-Biot fluid-poroelastic structure interaction model." }, arXiv preprint arXiv:1710.06750 (2017).
+  
+\end{thebibliography}
+
+\end{document}
