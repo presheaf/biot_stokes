@@ -174,27 +174,6 @@ BJS condition:
 \cite{ambartsumyan} does not have the constant $C_p$ in (5), but their interface is 'actually flat' and not a vessel wall with muscles extering force of their own, so that's reasonable.
 
 
-\section{Boundary conditions}
-In their numerical experiment (section 7.2), \cite{ambartsumyan} use the domain shown in figure \ref{fig:ambartsumyandomain}
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.15\textwidth]{img/ambartsumyandomain.png}
-  \label{fig:ambartsumyandomain}
-  \caption{Darcy domain from \cite{ambartsumyan}. Stokes domain is the removed 'finger'.}
-\end{figure}
-The Darcy boundary \darcybdy is partitioned into the left part $\darcybdy^{\text{L}}$ and the remainder $\darcybdy^{\neg \text{L}}$ in the obvious way. Physically, I think $\darcybdy^{\text{L}}$ is above ground and the other part is below ground or something.
-
-As boundary conditions, they use:
-\begin{itemize}
-\item $\uf = 10 \nf$ on \stokesbdy
-\item $\up \cdot \np = 0$ on $\darcybdy^{\text{left}}$
-\item $\pp = 1000$ on $\darcybdy^{\neg \text{left}}$
-\item $\disp \cdot \np = 0$ on $\darcybdy^{\neg \text{left}}$
-\item $(\sigmabf_p \np) \cdot \taubf_p = 0$ on $\darcybdy^{\neg \text{left}}$
-
-I think I can use essentially the same boundary conditions, although maybe I should prescribe the pressure on \stokesbdy instead of the flow.
- 
-\end{itemize}
 \section{Variational formulation}
 Having used a backward Euler discretization of the time derivative, \cite{ambartsumyan} obtain the following variational formulation
 
@@ -308,6 +287,38 @@ which, when \ddt{\disp} is discretized using a Backward Euler difference, yields
 
 
 
+\section{Boundary conditions}
+As the derivation of the weak form shows, I need :
+\begin{itemize}
+\item Dirichlet conditions on \uf or Neumann conditions on
+  $\sigmabf_f$ on \stokesbdy
+\item Dirichlet conditions on \disp or Neumann %
+  conditions on $\sigmabf_p$ on \darcybdy
+\item Dirichlet conditions on
+  \up or Neumann conditions on \pp on \darcybdy.
+\end{itemize}
+
+
+In their numerical experiment (section 7.2), \cite{ambartsumyan} use the domain shown in figure \ref{fig:ambartsumyandomain}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.15\textwidth]{img/ambartsumyandomain.png}
+  \label{fig:ambartsumyandomain}
+  \caption{Darcy domain from \cite{ambartsumyan}. Stokes domain is the removed 'finger'.}
+\end{figure}
+The Darcy boundary \darcybdy is partitioned into the left part $\darcybdy^{\text{L}}$ and the remainder $\darcybdy^{\neg \text{L}}$ in the obvious way. Physically, I think $\darcybdy^{\text{L}}$ is above ground and the other part is below ground or something.
+
+As boundary conditions, they use:
+\begin{itemize}
+\item $\uf = 10 \nf$ on \stokesbdy
+\item $\up \cdot \np = 0$ on $\darcybdy^{\text{left}}$
+\item $\pp = 1000$ on $\darcybdy^{\neg \text{left}}$ (maybe this should be on $\darcybdy^{\text{left}}$ instead?)
+\item $\disp \cdot \np = 0$ on $\darcybdy^{\neg \text{left}}$
+\item $(\sigmabf_p \np) \cdot \taubf_p = 0$ on $\darcybdy^{\neg \text{left}}$
+
+
+ 
+\end{itemize}
 
 
 
