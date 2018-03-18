@@ -19,7 +19,8 @@
 \renewcommand{\div}{\mathspace{\nabla \cdot}}
 \newcommand{\inner}[2]{\mathspace{\left (#1, #2 \right)}}
 \newcommand{\defeq}{\mathspace{:=}}
-\newcommand{\ddt}[1]{\mathspace{\frac {\partial #1} {\partial t}}}
+% \newcommand{\ddt}[1]{\mathspace{\frac {\partial #1} {\partial t}}}
+\newcommand{\ddt}[1]{\mathspace{\partial_t #1}}
 \newcommand{\dt}{\mathspace{\Delta t}}
 
 % domains and normals
@@ -219,8 +220,9 @@ Here the unknowns with no superscript mean the unknowns at time $n$ (e.g. $\uf =
 
 
 \section{Derivation of weak form}
+Briefly, \eqref{eq:varform1} is \eqref{eq:stokes_stress} multiplied by \vf integrated over \stokes; \eqref{eq:biot_stress} multiplied by \disptest integrated over \darcy; and \eqref{eq:darcy} multiplied \vp integrated over \darcy. The interface conditions are also all used.
 
-Multiply \eqref{eq:stokes_stress} by \vf and integrate over \stokes. By standard vector calculus,
+To be more detailed, multiply \eqref{eq:stokes_stress} by \vf and integrate over \stokes. By standard vector calculus,
 $$\intS - \vf \cdot \div \sigmabf_f = \intS \sigmabf_f \colon \grad \vf - \intSbdyI \sigmabf_f\nf  \cdot \vf.$$
 Now, as the $\partial \stokes$ consists of \stokesbdy and \interface, the boundary term splits into an integral over \stokesbdy which we can move to the RHS by applying boundary conditions \footnote{Specifically, Dirichlet conditions on \uf or Neumann conditions on $\sigmabf_f$.}, and an interface term $-I_{\vf} = -\intI \sigmabf_f \nf \cdot \vf$.
 
@@ -290,6 +292,15 @@ We have now derived all the necessary identities, and summing them all yields th
 \end{align*}
 
 If \ddt{\disp} is now discretized by a backward Euler difference, this is exactly \eqref{eq:varform1}.
+
+The next two are not as bad. \eqref{eq:varform2} is just \eqref{eq:stokes_conservation} multiplied by \wf integrated over \stokes plus \eqref{eq:biot_conservation} multiplied by \wp integrated over Darcy.
+
+Doing the above (no integration of parts needed) yields
+
+$$s_0\inner{\ddt{\pp}}{\wp}_{\darcy} - \alpha b_p(\ddt{\disp}, \wp)
+- b_p(\up, \wp) - b_f(\uf, \wf)$$ 
+
+Once the \ddt{}'s are discretized by a backward Euler difference, this is exactly \eqref{eq:varform2}.
 
 
 
