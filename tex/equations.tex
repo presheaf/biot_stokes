@@ -5,49 +5,64 @@
 \usepackage{amssymb}
 \usepackage{amsbsy}
 \usepackage{graphicx}
+\usepackage{xspace}
 \setcounter{secnumdepth}{-1}
 
 %% notation
+% I nearly called this 'smartmath', but am anticipating feeling really stupid for thinking this was smart in half a year or so
+\newcommand{\mathspace}[1]{\ensuremath{#1}\xspace} %command for defining commands
 
-\newcommand{\D}{\ensuremath{\mathbf{D}}}
-\newcommand{\sigmabf}{\ensuremath{\boldsymbol{\sigma}}}
-\newcommand{\taubf}{\ensuremath{\boldsymbol{\tau}}}
-\newcommand{\grad}{\ensuremath{\nabla}}
-\renewcommand{\div}{\ensuremath{\nabla \cdot}}
-\newcommand{\inner}[2]{\ensuremath{\left (#1, #2 \right)}}
-\newcommand{\defeq}{\ensuremath{:=}}
-\newcommand{\ddt}[1]{\ensuremath{\frac {\partial #1} {\partial t}}}
-\newcommand{\dt}{\ensuremath{\Delta t}}
+% differential operators and such
+\newcommand{\D}{\mathspace{\mathbf{D}}}
+\newcommand{\sigmabf}{\mathspace{\boldsymbol{\sigma}}}
+\newcommand{\grad}{\mathspace{\nabla}}
+\renewcommand{\div}{\mathspace{\nabla \cdot}}
+\newcommand{\inner}[2]{\mathspace{\left (#1, #2 \right)}}
+\newcommand{\defeq}{\mathspace{:=}}
+\newcommand{\ddt}[1]{\mathspace{\frac {\partial #1} {\partial t}}}
+\newcommand{\dt}{\mathspace{\Delta t}}
 
+% domains and normals
+\newcommand{\taubf}{\mathspace{\boldsymbol{\tau}}}
+\newcommand{\stokes}{\mathspace{\Omega_{f}}}
+\newcommand{\stokesbdy}{\mathspace{\Gamma_{f}}}
+\newcommand{\darcy}{\mathspace{\Omega_{p}}}
+\newcommand{\darcybdy}{\mathspace{\Gamma_{p}}}
+\newcommand{\interface}{\mathspace{\Gamma_{fp}}}
+\newcommand{\nf}{\mathspace{\mathbf{n}_f}}
+\newcommand{\np}{\mathspace{\mathbf{n}_p}}
 
+% shorthands for integrals - i.e. integral over Stokes, Stokes bdy + interface, Stokes bdy, interface
+\newcommand{\intD}{\mathspace{\int \limits_{\darcy}}}
+\newcommand{\intDbdyI}{\mathspace{\int \limits_{\partial \darcy}}}
+\newcommand{\intDbdy}{\mathspace{\int \limits_{\darcybdy}}}
+\newcommand{\intS}{\mathspace{\int \limits_{\stokes}}}
+\newcommand{\intSbdyI}{\mathspace{\int \limits_{\partial \stokes}}}
+\newcommand{\intSbdy}{\mathspace{\int \limits_{\stokesbdy}}}
+\newcommand{\intI}{\mathspace{\int \limits_{\interface}}}
 
-\newcommand{\stokes}{\ensuremath{\Omega_{f}}}
-\newcommand{\stokesbdy}{\ensuremath{\Gamma_{f}}}
-\newcommand{\darcy}{\ensuremath{\Omega_{p}}}
-\newcommand{\darcybdy}{\ensuremath{\Gamma_{p}}}
-\newcommand{\interface}{\ensuremath{\Gamma_{fp}}}
-\newcommand{\nf}{\ensuremath{\mathbf{n}_f}}
-\newcommand{\np}{\ensuremath{\mathbf{n}_p}}
 
 % fluid test\trial functions
-\newcommand{\uf}{\ensuremath{\mathbf{u}_f}}
-\newcommand{\vf}{\ensuremath{\mathbf{v}_f}}
-\newcommand{\up}{\ensuremath{\mathbf{u}_p}}
-\newcommand{\vp}{\ensuremath{\mathbf{v}_p}}
+
+
+\newcommand{\uf}{\mathspace{\mathbf{u}_f}}
+\newcommand{\vf}{\mathspace{\mathbf{v}_f}}
+\newcommand{\up}{\mathspace{\mathbf{u}_p}}
+\newcommand{\vp}{\mathspace{\mathbf{v}_p}}
 
 % pressure test\trial functions
-\newcommand{\pf}{\ensuremath{p_f}}
-\newcommand{\pp}{\ensuremath{p_p}}
-\newcommand{\wf}{\ensuremath{w_f}}
-\renewcommand{\wp}{\ensuremath{w_p}}
+\newcommand{\pf}{\mathspace{p_f}}
+\newcommand{\pp}{\mathspace{p_p}}
+\newcommand{\wf}{\mathspace{w_f}}
+\renewcommand{\wp}{\mathspace{w_p}}
 
 % displacement test\trial functions
-\newcommand{\disp}{\ensuremath{\boldsymbol{\eta}_p}}
-\newcommand{\disptest}{\ensuremath{\boldsymbol{\xi}_p}}
+\newcommand{\disp}{\mathspace{\boldsymbol{\eta}_p}}
+\newcommand{\disptest}{\mathspace{\boldsymbol{\xi}_p}}
 
 % multiplier test\trial functions
-\newcommand{\mult}{\ensuremath{\lambda_{\Gamma}}}
-\newcommand{\multtest}{\ensuremath{\mu_{\Gamma}}}
+\newcommand{\mult}{\mathspace{\lambda_{\Gamma}}}
+\newcommand{\multtest}{\mathspace{\mu_{\Gamma}}}
 
 
 
@@ -84,6 +99,8 @@ The unknowns of the system and the corresponding test functions are:
 \item[$\alpha$] Biot-Willis constant
 \item[$K$] Permeability tensor. Symmetric, bounded, positive definite. I take it to be scalar.
 \item[$\alpha_{BJS}$] Friction coefficient
+\item[$s_0$] Storage coefficient
+\item[$B=$] $\frac {\mu_f \alpha_{BJS}} {\sqrt{K}}$ The coefficient in the BJS condition. Could be zero.
 \end{description}
 
 \section{Notation}
@@ -92,11 +109,19 @@ The unknowns of the system and the corresponding test functions are:
 \item $\taubf_{f, j}, j = 1, \ldots, d-1$ is an orthogonal system of unit tangent vectors at \interface.
 \item $\D(\mathbf{v}) \defeq \frac 12 (\grad \mathbf{v} + \grad \mathbf{v}^T)$
 \item $\sigmabf_f(\uf, \pf) \defeq -\pf \mathbf{I} + 2 \mu_f \D(\uf)$
-\item $\sigmabf_p(\disp, \pp) \defeq \lambda_p (\div \disp) + 2 \mu_p \D(\disp) - \alpha \pp \mathbf{I} $
-  
+\item $\sigmabf_p(\disp, \pp) \defeq \lambda_p (\div \disp)\mathbf{I}  + 2 \mu_p \D(\disp) - \alpha \pp \mathbf{I} $
+\end{itemize}
+
+Next, here are a bunch of bilinear forms used in the problem: 
+\begin{itemize}
 \item $a_f(\uf, \vf) = \inner{2\mu \D(\uf)} {\D(\vf)}_{\stokes}$
 \item $a_p^d(\up, \vp) = \inner{\mu K^{-1}\up} {\vp}_{\darcy}$
 \item $a_p^e(\disp, \disptest) = \inner{\mu_p \D(\disp)} {\D(\disptest)}_{\darcy} + \inner{\lambda_p \div \disp} {\div \disptest}_{\darcy}$
+\item $b_f(\vf, \wf) = -\inner{\div \vf}{\wf}_{\stokes}$
+\item $b_p(\vp, \wp) = -\inner{\div \vp}{\wp}_{\darcy}$
+  
+\item $a_{BJS}(\uf, \disp; \vf, \disptest) = \frac {\mu \alpha_{BJS}} {\sqrt{K}} \sum_{j=1}^{d-1} \inner{(\uf - \disp) \cdot \taubf_j}{ (\vf - \disp) \cdot \tau_j}_{\interface} $
+\item $b_{\interface}(\vf, \vp, \disptest; \multtest) = \inner{\vf \cdot \nf + (\disptest + \vp) \cdot \np}{\multtest}_{\interface}$
   
 \end{itemize}
 
@@ -131,22 +156,21 @@ Conservation of mass:
 \begin{equation}
 \uf  \cdot \nf + \left ( \ddt{\disp} + \up \right ) \cdot \np = 0  \label{eq:massconservation}
 \end{equation}
-Balance of stress (will be enforced using \mult):
+Balance of stress :
 \begin{equation}
-  -(\sigmabf_f \nf) \cdot \nf = \pp, \hspace{0.02\linewidth} \sigmabf_f \nf + \sigmabf_p \np \ = 0, \:  \label{eq:stressbalance}
+  -(\sigmabf_f \nf) \cdot \nf = \pp + C_p = \lambda  \label{eq:stressbalance1_mult}
+\end{equation}
+\begin{equation}
+  \sigmabf_f \nf + \sigmabf_p \np = 0 \:  \label{eq:stressbalance2}
 \end{equation}
 BJS condition:
 \begin{equation}
-  -(\sigmabf_f \nf) \cdot \taubf_j = \frac {\mu_f \alpha_{BJS}} {\sqrt{K}} \left ( \uf - \ddt{\disp} \right ) \cdot \taubf_j
+  -(\sigmabf_f \nf) \cdot \taubf_j = B \left ( \uf - \ddt{\disp} \right ) \cdot \taubf_j
   \label{eq:BJS}
 \end{equation}
-Pressure difference across vessel wall:
-\begin{equation}
-  \pf - \pp = C
-  \label{eq:pressurejump}
-\end{equation}
-\cite{ambartsumyan} does not use condition \ref{eq:pressurejump}.
 
+
+\cite{ambartsumyan} does not have the constant $C_p$ in (5), but their interface is 'actually flat' and not a vessel wall with muscles extering force of their own, so that's reasonable.
 
 
 \section{Boundary conditions}
@@ -166,23 +190,109 @@ As boundary conditions, they use:
 \item $\pp = 1000$ on $\darcybdy^{\neg \text{left}}$
 \item $\disp \cdot \np = 0$ on $\darcybdy^{\neg \text{left}}$
 \item $(\sigmabf_p \np) \cdot \taubf_p = 0$ on $\darcybdy^{\neg \text{left}}$
-  
+
+I think I can use essentially the same boundary conditions, although maybe I should prescribe the pressure on \stokesbdy instead of the flow.
+ 
 \end{itemize}
 \section{Variational formulation}
 Having used a backward Euler discretization of the time derivative, \cite{ambartsumyan} obtain the following variational formulation
 
 \begin{subequations}
   \begin{align}
-    a_f (\uf, \vf) &+ a_p^d(\up, \vp) + a_p^e(\disp, \disptest)  + a_{BJS}\left (\uf, \frac {\disp} {\dt}; \vf, \disptest \right) \label{eq:varform1} \\
-    & + b_f(\vf, \pf) + b_p(\vp, \pp) + \alpha b_p(\disptest, \pp)   \nonumber \\
-    & + b_{\Gamma}(\vf, \vp, \disptest; \mult) \nonumber \\ &= a_{BJS}\left (\uf, \frac {\disp^{n-1}} {\dt}; \vf, \disptest \right)  \nonumber \\ 
+    a_f(\uf, \vf) +& b_f(\vf, \pf)  + a^e_p(\disp, \disptest) \label{eq:varform1} \\
+    +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \nonumber \\
+    + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \frac{\disp} {\dt}; \vf, \disptest \right)\nonumber \\
+                   = a_{BJS}\left (\uf, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy} \nonumber \\
+                   + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy}\nonumber \\ \nonumber \\
+    % a_f (\uf, \vf) &+ a_p^d(\up, \vp) + a_p^e(\disp, \disptest)  + a_{BJS}\left (\uf, \frac {\disp} {\dt}; \vf, \disptest \right) \label{eq:varform1} \\
+    %                & + b_f(\vf, \pf) + b_p(\vp, \pp) + \alpha b_p(\disptest, \pp)   \nonumber \\
+    %                & + b_{\interface}(\vf, \vp, \disptest; \mult) \nonumber \\
+    %                &= a_{BJS}\left (\uf, \frac {\disp^{n-1}} {\dt}; \vf, \disptest \right)  + b_{\interface}(\vf, \vp, \disptest; C_p) \nonumber \\ 
     \inner{s_0 \frac {\pp} {\dt}}{\wp}_{\darcy}  &- \alpha b_p\left ( \frac{\disp} {\dt}, \wp \right ) - b_p(\up, \wp) - b_f(\uf, \wf) \label{eq:varform2}
-    \\ &= \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} - \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right )_{\darcy}\nonumber \\
-    b_{\Gamma}\left (\uf, \up; \disp \dt \right ) &= b_{\Gamma}\left (\uf, \up; \disp^{n-1} \right ) \label{eq:varform3}
+    \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right )_{\darcy}\nonumber \\ \nonumber \\
+    b_{\interface}\left (\uf, \up, \disp; \multtest \right ) &= b_{\interface}\left (\uf, \up, \disp^{n-1}; \multtest \right ) \label{eq:varform3}
   \end{align}
 \end{subequations}
 
-Here the unknowns with no superscript mean the unknowns at time $n$ (e.g. $\uf = \uf^n$).
+Here the unknowns with no superscript mean the unknowns at time $n$ (e.g. $\uf = \uf^n$). 
+
+
+
+\section{Derivation of weak form}
+
+Multiply \eqref{eq:stokes_stress} by \vf and integrate over \stokes. By standard vector calculus,
+$$\intS - \vf \cdot \div \sigmabf_f = \intS \sigmabf_f \colon \grad \vf - \intSbdyI \sigmabf_f\nf  \cdot \vf.$$
+Now, as the $\partial \stokes$ consists of \stokesbdy and \interface, the boundary term splits into an integral over \stokesbdy which we can move to the RHS by applying boundary conditions \footnote{Specifically, Dirichlet conditions on \uf or Neumann conditions on $\sigmabf_f$.}, and an interface term $-I_{\vf} = -\intI \sigmabf_f \nf \cdot \vf$.
+
+Before proceeding, we expand\footnote{The equality $\D(\uf) \colon \grad \vf = \D(\uf) \colon \D(\vf)$ looks false because $\grad \vf \neq \D(\vf)$, but $\D(\uf)$ is symmetric, so $\D(\uf) \colon \grad \vf = \D(\uf) \colon \grad \vf^T = \D(\uf) \colon \D(\vf)$.}
+\begin{align*}
+  \intS \sigmabf_f \colon \grad \vf &= \intS (-\pf \mathbf{I} + 2 \mu_f \D(\uf)) \colon \grad \vf \\
+                                    &= \intS -\pf \div \vf + \intS 2 \mu_f \D(\uf) \colon \grad \vf \\
+                                      &= b_f(\vf, \pf) + a_f(\uf, \vf)
+\end{align*}
+So the contribution here is $$a_f(\uf, \vf) + b_f(\vf, \pf) -I_{\vf} - (\sigmabf_f\nf, \vf)_{\stokesbdy}.$$
+
+
+% Next, multiply \eqref{eq:stokes_conservation} by \wf and integrate over \stokes. This becomes
+% $$\intS \wf \cdot \div \uf = $$
+
+Next, multiply \eqref{eq:biot_stress} by \disptest and integrate over \darcy. By exactly the same argument,
+$$\intD - \disptest \cdot \div \sigmabf_p = \intD \sigmabf_p \colon \grad \disptest - \intDbdyI \sigmabf_p\np  \cdot \disptest.$$
+
+Again, the boundary term splits into an integral over \darcybdy where we need boundary conditions \footnote{Specifically, Dirichlet conditions on \disp or Neumann conditions on $\sigmabf_p$.} and an interface term $-I_{\disptest} = -\intI \sigmabf_p \np \cdot \disptest$. Expanding,
+
+\begin{align*}
+  \intD \sigmabf_p \colon \grad \disptest &=  \intD  \left ( \lambda_p (\div \disp)(\div \disptest)  + 2 \mu_p \D(\disp) \colon \grad \disptest \right)
+                                            - \alpha \pp \div \disptest \\
+                                          &= a^e_p(\disp, \disptest) + \alpha b_p(\disptest, \pp)
+\end{align*}
+So the contribution is $$a^e_p(\disp, \disptest) + \alpha b_p(\disptest, \pp) - I_{\disptest} - (\sigmabf_p\np, \disptest)_{\darcybdy}.$$
+
+Next, multiply \eqref{eq:darcy} by $\frac {\mu} {K} \vp$ and integrate over \darcybdy. Integration by parts yields
+$$ \intD \frac {\mu} {K} \vp \cdot \uf -  \intD \pp \div \vp = \intDbdyI \pp \vp \cdot \np$$ 
+The boundary term splits into an integral over \darcybdy where we need boundary conditions \footnote{Specifically, Dirichlet conditions on \up or Neumann conditions on \pp.} and an interface term $I_{\vp} = \intI \pp \vp \cdot \np$, so the contribution is
+$$a_p^d(\up, \vp) + b_p(\vp, \pp) + I_{\vp} - (\pp \np, \vp)_{\darcybdy}.$$
+
+Next, once we add all these equations together, we will have to handle the sum of the interface terms $$-I_{\vf} - I_{\disptest} + I_{\vp} = -\intI \sigmabf_f \nf \cdot \vf -\intI \sigmabf_p \np \cdot \disptest + \intI \pp \vp \cdot \np$$
+
+We start with $\intI \pp \vp \cdot \np$. By \eqref{eq:stressbalance1_mult}, $\pp = \mult - C_p$ on \interface, so
+$$I_{\vp} = \intI \pp \vp \cdot \np = \intI \mult \vp \cdot \np - \intI C_p \vp \cdot \np$$
+
+The second term can then go live on the right hand side. Next, we treat the other two interface terms. By \eqref{eq:stressbalance2}, $\sigmabf_f \nf = - \sigmabf_p \np$, so we have that $$I_{\vf} + I_{\disptest} = \intI (\vf - \disptest) \cdot \sigmabf_f \nf$$
+Next, note that the BJS condition \eqref{eq:BJS} gives us information on the tangential component of $\sigmabf_f \nf$, while \eqref{eq:stressbalance1_mult} gives us information on the normal component. As $\nf, \taubf_1, \taubf_2$ form an orthonormal system, we have that\footnote{This is just use of the fact when a vector $\mathbf{v}$ is written in a basis $\mathbf{e}_i$, the coefficient of $\mathbf{e}_i$    }
+\begin{align*}
+  \vf - \disptest = \: &\nf ((\vf - \disptest) \cdot \nf) + \sum_j \taubf_j ((\vf - \disptest) \cdot \taubf_j) \\
+  \Longrightarrow \hspace{0.02\textwidth}  (\sigmabf_f \nf) \cdot (\vf - \disptest) = & \: ((\sigmabf_f \nf) \cdot \nf) \: ((\vf - \disptest) \cdot \nf) \\
+  & + \sum_j ((\sigmabf_f \nf) \cdot \taubf_j) ((\vf - \disptest) \cdot \taubf_j)
+\end{align*}
+By \eqref{eq:stressbalance1_mult}, $(\sigmabf_f \nf) \cdot \nf = -\lambda$, and by \eqref{eq:BJS}, $(\sigmabf_f \nf) \cdot \taubf_j = -B \left ( \uf - \ddt{\disp} \right ) \cdot \taubf_j$, so
+
+\begin{align*}
+(\sigmabf_f \nf) \cdot (\vf - \disptest) =  \: &-\lambda\:  ((\vf - \disptest) \cdot \nf) \\
+  &- \sum_j \left (B \left ( \uf - \ddt{\disp} \right ) \cdot \taubf_j \right ) ((\vf - \disptest) \cdot \taubf_j)
+\end{align*}
+
+We can then use that $\nf = - \np$ to write $\lambda \: (\vf - \disptest) \cdot \nf = \lambda \: (\vf  \cdot \nf + \disptest \cdot \np)$.
+Putting it all together,
+
+\begin{align*}
+  -(I_{\vf} + I_{\disptest}) + I_{\vp}  =& \intI \lambda\: (\vf  \cdot \nf + (\disptest + \vp) \cdot \np) \\
+  + &\intI \left (B \left ( \uf - \ddt{\disp} \right ) \cdot \taubf_j \right ) ((\vf - \disptest) \cdot \taubf_j) \\
+  - &\intI C_p \vp \cdot \np \\
+  = b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) & + a_{BJS}\left (\uf, \ddt{\disp}; \vf, \disptest \right) - \inner{\vp}{C_p\np}_{\interface} \\
+\end{align*}
+
+We have now derived all the necessary identities, and summing them all yields the following:
+\begin{align*}
+  a_f(\uf, \vf) +& b_f(\vf, \pf)  + a^e_p(\disp, \disptest)  \\ +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \\
+  + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \ddt{\disp}; \vf, \disptest \right)\\
+      = \inner{\vp}{C_p\np}_{\interface} +& (\sigmabf_f\nf, \vf)_{\stokesbdy} + (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy}\\
+\end{align*}
+
+If \ddt{\disp} is now discretized by a backward Euler difference, this is exactly \eqref{eq:varform1}.
+
+
+
 
 
 
@@ -191,7 +301,10 @@ Here the unknowns with no superscript mean the unknowns at time $n$ (e.g. $\uf =
 \section{Thoughts}
 \begin{itemize}
 \item Kent offered very gentle scepticism about using a 3-field formulation, and suggested not having \up as an unknown, using $\up = \grad \pp$ to remove it. I thought \cite{ambartsumyan} had some opinion on this, but on closer reading I can't find it, so maybe that's from another article. I should read up on this.
-\item If I want to use \ref{eq:pressurejump}, I need to drop an interface condition. The most reasonable thing to drop seem to be the first part of \ref{eq:stressbalance}, because they both effectively specify \pp. But I don't like the BJS condition because it has too many letters, so I'd like an excuse to drop that instead.
+
+\item I derived the weak formulation by noting that \cite{ambartsumyan} had $\mult = -(\sigmabf \nf) \cdot \nf = \pp$, while I want $\mult = -(\sigmabf \nf) \cdot \nf = \pp + C_p$, so I figured I could get my weak formulation by taking \cite{ambartsumyan}'s and replacing $\mult$ by $\mult + C_p$. I should rederive it myself to see whether this is actually true.
+\item Why is there a 2 in front of $\mu$ in equation \eqref{eq:stokes_stress}? If $\mu$ is just divided by 2 that's fine, but then I need to divide my choice by $\mu$ accordingly.
+
   
  
 \end{itemize}
