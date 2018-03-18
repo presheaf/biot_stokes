@@ -302,6 +302,8 @@ $$s_0\inner{\ddt{\pp}}{\wp}_{\darcy} - \alpha b_p(\ddt{\disp}, \wp)
 
 Once the \ddt{}'s are discretized by a backward Euler difference, this is exactly \eqref{eq:varform2}.
 
+Finally, \eqref{eq:varform3} is obtained by taking \eqref{eq:massconservation}, multiplying by \multtest and integrating over \interface. This yields $$b_{\interface} (\uf, \up, \ddt{\disp} ;\multtest) = 0$$
+which, when \ddt{\disp} is discretized using a Backward Euler difference, yields \eqref{eq:varform3}.
 
 
 
@@ -313,10 +315,9 @@ Once the \ddt{}'s are discretized by a backward Euler difference, this is exactl
 \begin{itemize}
 \item Kent offered very gentle scepticism about using a 3-field formulation, and suggested not having \up as an unknown, using $\up = \grad \pp$ to remove it. I thought \cite{ambartsumyan} had some opinion on this, but on closer reading I can't find it, so maybe that's from another article. I should read up on this.
 
-\item I derived the weak formulation by noting that \cite{ambartsumyan} had $\mult = -(\sigmabf \nf) \cdot \nf = \pp$, while I want $\mult = -(\sigmabf \nf) \cdot \nf = \pp + C_p$, so I figured I could get my weak formulation by taking \cite{ambartsumyan}'s and replacing $\mult$ by $\mult + C_p$. I should rederive it myself to see whether this is actually true.
 \item Why is there a 2 in front of $\mu$ in equation \eqref{eq:stokes_stress}? If $\mu$ is just divided by 2 that's fine, but then I need to divide my choice by $\mu$ accordingly.
 
-  
+   
  
 \end{itemize}
 
