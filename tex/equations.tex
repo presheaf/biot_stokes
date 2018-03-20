@@ -22,6 +22,7 @@
 % \newcommand{\ddt}[1]{\mathspace{\frac {\partial #1} {\partial t}}}
 \newcommand{\ddt}[1]{\mathspace{\partial_t #1}}
 \newcommand{\dt}{\mathspace{\Delta t}}
+\newcommand{\matrixform}[1]{\mathspace{\left [ #1 \right ]}}
 
 % domains and normals
 \newcommand{\taubf}{\mathspace{\boldsymbol{\tau}}}
@@ -32,6 +33,7 @@
 \newcommand{\interface}{\mathspace{\Gamma_{fp}}}
 \newcommand{\nf}{\mathspace{\mathbf{n}_f}}
 \newcommand{\np}{\mathspace{\mathbf{n}_p}}
+\newcommand{\nporf}{\mathspace{\mathbf{n}_*}}
 
 % shorthands for integrals - i.e. integral over Stokes, Stokes bdy + interface, Stokes bdy, interface
 \newcommand{\intD}{\mathspace{\int \limits_{\darcy}}}
@@ -290,6 +292,29 @@ which, when \ddt{\disp} is discretized using a Backward Euler difference, yields
 
 
 
+\section{Matrix form}
+Denote by $\matrixform{c(\mathbf{u}, \mathbf{v})}$ the matrix of the bilinear form $c$, meaning the matrix with entries $c(\mathbf{e}^U_i, \mathbf{e}^V_j)$, where the test function varies as you move down the columns. Then swapping each argument between test and trial function transposes the matrix, so for example $$\matrixform{b_f(\vf, \pf)} = \matrixform{b_f(\uf, \wf)}^T. $$
+ 
+We write our problem in a matrix form, but before doing so, we take a look at what's going on at the interface, as two of our bilinear forms are mixed. First, note that
+\begin{align*}
+a_{BJS}(\uf, \disp; \vf, \disptest) = B \sum_{j=1}^{d-1} & \inner{\uf \cdot \taubf_j}{\vf \cdot \taubf_j}_{\interface} - \inner{\disp \cdot \taubf_j}{\vf \cdot \taubf_j}_{\interface} \\
+                                                         & - \inner{\uf \cdot \taubf_j}{\disptest \cdot \taubf_j}_{\interface}+ \inner{\disp \cdot \taubf_j}{\disptest \cdot \taubf_j}_{\interface}
+\end{align*}
+splits into $S_{\vf, \uf} - S_{\vf, \disp} - S_{\disptest, \uf} + S_{\disptest, \disp}$
+where $S_{\mathbf{a}, \mathbf{b}} = B \sum_{j=1}^{d-1} \inner{\mathbf{b} \cdot \taubf_j}{\mathbf{a} \cdot \taubf_j}_{\interface}$ (see the Thoughts-section for some intuition on this)
+
+Next, looking at the other interface term, $b_{\interface}(\vf, \vp, \disptest; \mult)$, note that it splits into sums of mass matrices of normal components. More precisely,
+
+$$b_{\interface}(\vf, \vp, \disptest; \mult) = N^f_{\vf, \mult} + N^p_{\vp, \mult} + N^p_{\disptest, \mult} $$
+
+where $N^*_{\mathbf{a}, b} = \inner{\mathbf{a} \cdot \nporf}{b}_{\interface}$. With the exception of the RHS term $\inner{\vp}{C_p\np}_{\interface}$, which is easier because it only lives in one function space, these are the only interface terms we need to assemble. So on the implementation side, we only need to worry about matrices of 
+
+Now, abuse notation to let $N_*, S_*$ instead mean the matrices of the bilinear forms defined above. 
+
+
+
+
+
 
 \section{Boundary conditions}
 As the derivation of the weak form shows, I need :
@@ -331,8 +356,9 @@ As boundary conditions, they use:
 \item Kent offered very gentle scepticism about using a 3-field formulation, and suggested not having \up as an unknown, using $\up = \grad \pp$ to remove it. I thought \cite{ambartsumyan} had some opinion on this, but on closer reading I can't find it, so maybe that's from another article. I should read up on this.
 
 \item Why is there a 2 in front of $\mu$ in equation \eqref{eq:stokes_stress}? If $\mu$ is just divided by 2 that's fine, but then I need to divide my choice by $\mu$ accordingly.
+\item As $\nf, \taubf_1, \taubf_2$ form an orthonormal system, $\sum \inner{\mathbf{b} \cdot \taubf_j}{\mathbf{a} \cdot \taubf_j}$ is the normal inner product $\inner{\mathbf{b}}{\mathbf{a}}$ minus the term $(\mathbf{a} \cdot \np) \cdot (\mathbf{b} \cdot \np)$ So it can be thought of as the inner product $\inner{\Pi{\mathbf{a}}}{\Pi{\mathbf{b}}}$ where $\Pi\mathbf{a}$ is the projection of the vector $\mathbf{a}$ onto the interface, meaning that the BJS matrix is essentially a ``mass matrix with a component missing''.
 
-   
+  So if you don't want to mess with tangents, the relation $$\inner{\Pi\mathbf{a}}{\Pi\mathbf{b}} = \inner{\mathbf{a}}{\mathbf{b}} - \inner{(\mathbf{a} \cdot \nf)}{(\mathbf{b} \cdot \nf)}$$ means you're set as long as you can keep track of the interface normal. (In principle it should not even need to have a consistent orientation, but in practice I imagine it might have to.) 
  
 \end{itemize}
 
