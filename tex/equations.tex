@@ -121,8 +121,12 @@ Next, here are a bunch of bilinear forms used in the problem:
 \item $b_f(\vf, \wf) = -\inner{\div \vf}{\wf}_{\stokes}$
 \item $b_p(\vp, \wp) = -\inner{\div \vp}{\wp}_{\darcy}$
   
-\item $a_{BJS}(\uf, \disp; \vf, \disptest) = \frac {\mu \alpha_{BJS}} {\sqrt{K}} \sum_{j=1}^{d-1} \inner{(\uf - \disp) \cdot \taubf_j}{ (\vf - \disp) \cdot \tau_j}_{\interface} $
-\item $b_{\interface}(\vf, \vp, \disptest; \multtest) = \inner{\vf \cdot \nf + (\disptest + \vp) \cdot \np}{\multtest}_{\interface}$
+\item $a_{BJS}(\uf, \disp; \vf, \disptest) = \frac {\mu \alpha_{BJS}} {\sqrt{K}} \sum_{j=1}^{d-1} \inner{(\uf - \disp) \cdot \taubf_j}{ (\vf - \disp) \cdot \taubf_j}_{\interface} $
+\item $b_{\interface}(\vf, \vp, \disptest; \multtest) = b_{\interface}^{\vf}(\vf, \multtest)  + b_{\interface}^{\vp}(\vp, \multtest) + b_{\interface}^{\disptest}(\disptest, \multtest)$
+
+\item $b_{\interface}^{\vf}(\vf, \multtest) = \inner{\vf \cdot \nf}{\multtest}_{\interface}$
+\item $b_{\interface}^{\vp}(\vp, \multtest) = \inner{\vp \cdot \np}{\multtest}_{\interface}$
+\item $b_{\interface}^{\disptest}(\disptest, \multtest) = \inner{\disptest \cdot \np}{\multtest}_{\interface}$
   
 \end{itemize}
 
@@ -182,15 +186,15 @@ Having used a backward Euler discretization of the time derivative, \cite{ambart
     a_f(\uf, \vf) +& b_f(\vf, \pf)  + a^e_p(\disp, \disptest) \label{eq:varform1} \\
     +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \nonumber \\
     + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \frac{\disp} {\dt}; \vf, \disptest \right)\nonumber \\
-                   = a_{BJS}\left (\uf, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy} \nonumber \\
+                   = a_{BJS}\left (0, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy} \nonumber \\
                    + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy}\nonumber \\ \nonumber \\
     % a_f (\uf, \vf) &+ a_p^d(\up, \vp) + a_p^e(\disp, \disptest)  + a_{BJS}\left (\uf, \frac {\disp} {\dt}; \vf, \disptest \right) \label{eq:varform1} \\
     %                & + b_f(\vf, \pf) + b_p(\vp, \pp) + \alpha b_p(\disptest, \pp)   \nonumber \\
     %                & + b_{\interface}(\vf, \vp, \disptest; \mult) \nonumber \\
     %                &= a_{BJS}\left (\uf, \frac {\disp^{n-1}} {\dt}; \vf, \disptest \right)  + b_{\interface}(\vf, \vp, \disptest; C_p) \nonumber \\ 
     \inner{s_0 \frac {\pp} {\dt}}{\wp}_{\darcy}  &- \alpha b_p\left ( \frac{\disp} {\dt}, \wp \right ) - b_p(\up, \wp) - b_f(\uf, \wf) \label{eq:varform2}
-    \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right )_{\darcy}\nonumber \\ \nonumber \\
-    b_{\interface}\left (\uf, \up, \disp; \multtest \right ) &= b_{\interface}\left (\uf, \up, \disp^{n-1}; \multtest \right ) \label{eq:varform3}
+    \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right ) \nonumber \\ \nonumber \\
+    b_{\interface}\left (\uf, \up, \frac {\disp} {\dt}; \multtest \right ) &= b^{\disptest}_{\interface}\left (\frac {\disp^{n-1}} {\dt}; \multtest \right ) \label{eq:varform3}
   \end{align}
 \end{subequations}
 
