@@ -121,7 +121,7 @@ Next, here are a bunch of bilinear forms used in the problem:
 \item $b_f(\vf, \wf) = -\inner{\div \vf}{\wf}_{\stokes}$
 \item $b_p(\vp, \wp) = -\inner{\div \vp}{\wp}_{\darcy}$
   
-\item $a_{BJS}(\uf, \disp; \vf, \disptest) = \frac {\mu \alpha_{BJS}} {\sqrt{K}} \sum_{j=1}^{d-1} \inner{(\uf - \disp) \cdot \taubf_j}{ (\vf - \disp) \cdot \taubf_j}_{\interface} $
+\item $a_{BJS}(\uf, \disp; \vf, \disptest) = \frac {\mu \alpha_{BJS}} {\sqrt{K}} \sum_{j=1}^{d-1} \inner{(\uf - \disp) \cdot \taubf_j}{ (\vf - \disptest) \cdot \taubf_j}_{\interface} $
 \item $b_{\interface}(\vf, \vp, \disptest; \multtest) = b_{\interface}^{\vf}(\vf, \multtest)  + b_{\interface}^{\vp}(\vp, \multtest) + b_{\interface}^{\disptest}(\disptest, \multtest)$
 
 \item $b_{\interface}^{\vf}(\vf, \multtest) = \inner{\vf \cdot \nf}{\multtest}_{\interface}$
