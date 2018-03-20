@@ -6,6 +6,9 @@
 \usepackage{amsbsy}
 \usepackage{graphicx}
 \usepackage{xspace}
+\usepackage{multicol}
+
+
 \setcounter{secnumdepth}{-1}
 
 %% notation
@@ -23,6 +26,7 @@
 \newcommand{\ddt}[1]{\mathspace{\partial_t #1}}
 \newcommand{\dt}{\mathspace{\Delta t}}
 \newcommand{\matrixform}[1]{\mathspace{\left [ #1 \right ]}}
+\newcommand{\matzero}{}        %can't decide if matrix looks readable without 0-entries written in 
 
 % domains and normals
 \newcommand{\taubf}{\mathspace{\boldsymbol{\tau}}}
@@ -293,7 +297,7 @@ which, when \ddt{\disp} is discretized using a Backward Euler difference, yields
 
 
 \section{Matrix form}
-Denote by $\matrixform{c(\mathbf{u}, \mathbf{v})}$ the matrix of the bilinear form $c$, meaning the matrix with entries $c(\mathbf{e}^U_i, \mathbf{e}^V_j)$, where the test function varies as you move down the columns. Then swapping each argument between test and trial function transposes the matrix, so for example $$\matrixform{b_f(\vf, \pf)} = \matrixform{b_f(\uf, \wf)}^T. $$
+Denote by $\matrixform{c(\mathbf{u}, \mathbf{v})}$ the matrix/vector of the bilinear/linear form $c$, meaning the matrix with entries $c(\mathbf{e}^U_i, \mathbf{e}^V_j)$, where the test function varies as you move down the rows. Then swapping each argument between test and trial function transposes the matrix, so for example $$\matrixform{b_f(\vf, \pf)} = \matrixform{b_f(\uf, \wf)}^T. $$
  
 We write our problem in a matrix form, but before doing so, we take a look at what's going on at the interface, as two of our bilinear forms are mixed. First, note that
 \begin{align*}
@@ -301,17 +305,118 @@ a_{BJS}(\uf, \disp; \vf, \disptest) = B \sum_{j=1}^{d-1} & \inner{\uf \cdot \tau
                                                          & - \inner{\uf \cdot \taubf_j}{\disptest \cdot \taubf_j}_{\interface}+ \inner{\disp \cdot \taubf_j}{\disptest \cdot \taubf_j}_{\interface}
 \end{align*}
 splits into $S_{\vf, \uf} - S_{\vf, \disp} - S_{\disptest, \uf} + S_{\disptest, \disp}$
-where $S_{\mathbf{a}, \mathbf{b}} = B \sum_{j=1}^{d-1} \inner{\mathbf{b} \cdot \taubf_j}{\mathbf{a} \cdot \taubf_j}_{\interface}$ (see the Thoughts-section for some intuition on this)
+where $S_{\mathbf{a}, \mathbf{b}} = B \sum_{j=1}^{d-1} \inner{\mathbf{b} \cdot \taubf_j}{\mathbf{a} \cdot \taubf_j}_{\interface}$ (see the Thoughts-section for how this might be conveniently implemented)
 
 Next, looking at the other interface term, $b_{\interface}(\vf, \vp, \disptest; \mult)$, note that it splits into sums of mass matrices of normal components. More precisely,
 
 $$b_{\interface}(\vf, \vp, \disptest; \mult) = N^f_{\vf, \mult} + N^p_{\vp, \mult} + N^p_{\disptest, \mult} $$
 
-where $N^*_{\mathbf{a}, b} = \inner{\mathbf{a} \cdot \nporf}{b}_{\interface}$. With the exception of the RHS term $\inner{\vp}{C_p\np}_{\interface}$, which is easier because it only lives in one function space, these are the only interface terms we need to assemble. So on the implementation side, we only need to worry about matrices of 
+where $N^*_{\mathbf{a}, b} = \inner{\mathbf{a} \cdot \nporf}{b}_{\interface}$. With the exception of the RHS term $\inner{\vp}{C_p\np}_{\interface}$, which is easier because it only lives in one function space, these are the only interface terms we need to assemble.
 
-Now, abuse notation to let $N_*, S_*$ instead mean the matrices of the bilinear forms defined above. 
+So on the implementation side, the only matrices we need to assemble on the interface are $\inner{\mathbf{a} \cdot \nporf}{b}_{\interface}$ and  $B \sum_{j=1}^{d-1} \inner{\mathbf{b} \cdot \taubf_j}{\mathbf{a} \cdot \taubf_j}_{\interface}$
 
 
+Now, abuse notation to let $N_*, S_*$ instead mean the matrices of the bilinear forms defined above, and define a couple more:
+\begin{center}
+  \begin{multicols}{2}
+    Matrices
+\begin{description}
+\item[$A_f$] \defeq \matrixform{a_f(\uf, \vf)}
+\item[$A^d_p$]\defeq  \matrixform{a_p^d(\up, \vp)}
+\item[$A^e_p$]\defeq  \matrixform{a_p^e(\disp, \disptest)}
+\item[$B_f$]\defeq  \matrixform{b_f(\vf, \pf)}
+\item[$B^{\vp}_p$]\defeq  \matrixform{b_p(\vp, \pp)}
+\item[$B^{\disptest}_p$]\defeq  \matrixform{b_p(\disptest, \pp)}
+\item[$M_*$] \defeq mass matrix of unknown $* $
+\end{description}
+\columnbreak
+Vectors
+\begin{description}
+\item[$L^{\sigmabf_f}$] \defeq \matrixform{\inner{\sigmabf_f \nf}{\vf}_{\stokesbdy}}
+\item[$L^{\sigmabf_p}$] \defeq \matrixform{\inner{\sigmabf_p \np}{\disptest}_{\darcybdy}}
+\item[$L^{\pp}$] \defeq \matrixform{\inner{\pp \np}{\vp}_{\darcybdy}}
+\item[$L^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
+\item[$\uf, \pf, \ldots$] \defeq vector of dofs
+  
+\end{description}
+
+\end{multicols}
+\end{center}
+Note that although some of these vectors involve the unknowns, but appear on the RHS, they will be known because of BCs.
+
+
+Then the matrix of our system lookjs like
+\[ \renewcommand{\arraystretch}{1.8}
+  \left[\begin{array}{@{}ccc|cc|c@{}}
+          % \up & \pp & \disp & \uf & \pf & \mult \\
+          
+          A^d_p & B^{\vp}_p & \matzero & \matzero & \matzero & N^p_{\vp, \mult} \\ % \vp -row
+          - (B^{\vp}_p)^T & \frac {s_0}{\dt} M_{\pp} & - \frac{\alpha}{\dt} (B^{\disptest}_p)^T & \matzero & \matzero & \matzero\\ % \wp -row 
+          \matzero & \alpha B^{\disptest}_p & A^e_p & - S_{\disptest, \uf} & \matzero & N^p_{\disptest, \mult}\\ % \disptest -row
+          \hline
+          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f & B_f & N^f_{\vf, \mult}\\ % \vf -row
+          \matzero & \matzero & \matzero & -B_f^T & \matzero & \matzero \\ % \wf -row
+          \hline
+          (N^p_{\vp, \mult})^T & \matzero & \frac 1 {\dt} (N^p_{\disptest, \mult})^T & (N^f_{\vf, \mult})^T & \matzero & \matzero \\ % \multtest -row
+
+        \end{array}\right]
+      \left[\begin{array}{@{}c@{}}
+                \up \\
+                \pp \\
+                \disp \\
+                \uf \\
+                \pf \\
+                \mult
+            \end{array}\right]
+          = \newline
+                      \left[\begin{array}{@{}c@{}}
+                L^{\pp} + L^{\Delta p} \\
+                              b^{\pp} \\
+                L^{\sigma_p} \\
+                L^{\sigma_f} \\
+                \matzero \\
+                \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
+        \end{array}\right]
+    \]
+
+
+where
+$$b^{\pp} = \frac {s_0}{\dt} M_{\pp} \pp^{n-1} - \frac {\alpha} {\dt} (B_p^{\disptest})^T \disp^{n-1}$$
+
+By scaling, this seems like it could be made symmetric. Specifically, dividing the equation for \disptest by \dt, flipping the signs of the equations for \wf and \wp gets you there:
+\[ \renewcommand{\arraystretch}{1.8}
+  \left[\begin{array}{@{}ccc|cc|c@{}}
+          % \up & \pp & \disp & \uf & \pf & \mult \\
+          
+          A^d_p & B^{\vp}_p & \matzero & \matzero & \matzero & N^p_{\vp, \mult} \\ % \vp -row
+          (B^{\vp}_p)^T & -\frac {s_0}{\dt} M_{\pp} & \frac{\alpha}{\dt} (B^{\disptest}_p)^T & \matzero & \matzero & \matzero\\ % \wp -row 
+          \matzero & \frac {\alpha} {\dt} B^{\disptest}_p & \frac 1 {\dt}A^e_p & -\frac 1 {\dt} S_{\disptest, \uf} & \matzero &\frac 1 {\dt} N^p_{\disptest, \mult}\\ % \disptest -row
+          \hline
+          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f & B_f & N^f_{\vf, \mult}\\ % \vf -row
+          \matzero & \matzero & \matzero & B_f^T & \matzero & \matzero \\ % \wf -row
+          \hline
+          (N^p_{\vp, \mult})^T & \matzero & \frac 1 {\dt} (N^p_{\disptest, \mult})^T & (N^f_{\vf, \mult})^T & \matzero & \matzero \\ % \multtest -row
+
+        \end{array}\right]
+      \left[\begin{array}{@{}c@{}}
+                \up \\
+                \pp \\
+                \disp \\
+                \uf \\
+                \pf \\
+                \mult
+            \end{array}\right]
+          = \newline
+                      \left[\begin{array}{@{}c@{}}
+                L^{\pp} + L^{\Delta p} \\
+                              -b^{\pp} \\
+                              \frac 1 {\dt}L^{\sigma_p} \\
+                L^{\sigma_f} \\
+                \matzero \\
+                \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
+        \end{array}\right]
+\]
+This makes the $(\wp, \pp)$ block negative, though.
 
 
 
