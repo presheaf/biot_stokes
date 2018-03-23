@@ -2,7 +2,7 @@ import xii
 import mshr
 import dolfin
 from block import block_mat, block_vec, block_bc
-
+from petsc4py import PETSc
 from dolfin import *
 from xii import *
 
@@ -34,21 +34,29 @@ class BiotStokesDomain3D(object):
         self.porous_domain = submeshes[1]
         self.interface = interface
 
-        self.mark_boundary
+        self.mark_boundary()
         
 
     def mark_boundary(self):
+        """Interface should be marked as 0. Do not set BCs there.
+        left, right, top, bottom = 1, 2, 3, 4"""
+        
         stokes_markers = FacetFunction("size_t", self.stokes_domain, 0)
         porous_markers = FacetFunction("size_t", self.porous_domain, 0)
 
-        full_bdy = dolfin.CompiledSubDomain("on_boundary")
+        interface_bdy = dolfin.CompiledSubDomain("on_boundary")
+
         left_bdy = dolfin.CompiledSubDomain("near(x[0], 0) && on_boundary")
         right_bdy = dolfin.CompiledSubDomain("near(x[0], 1) && on_boundary")
+        top_bdy = dolfin.CompiledSubDomain("near(x[1], 0) && on_boundary")
+        bottom_bdy = dolfin.CompiledSubDomain("near(x[1], 1) && on_boundary")
 
         for markers in [stokes_markers, porous_markers]:
-            full_bdy.mark(markers, 1)
-            left_bdy.mark(markers, 2)
-            right_bdy.mark(markers, 3)
+            interface_bdy.mark(markers, 0)
+            left_bdy.mark(markers, 1)
+            right_bdy.mark(markers, 2)
+            top_bdy.mark(markers, 3)
+            bottom_bdy.mark(markers, 4)
 
         self.stokes_bdy_markers = stokes_markers
         self.porous_bdy_markers = porous_markers
@@ -92,27 +100,31 @@ class BiotStokesProblem(object):
 
         self.make_function_spaces()
 
-        self.add_neumann_bc("stokes", 2, 10)
         self.add_neumann_bc("stokes", 1, 5)
+        self.add_neumann_bc("stokes", 2, 10)
         
     def add_dirichlet_bc(self, problem_name, subdomain_id, value):
-        if subdomain_id in self._neumann_bc[problem_name]:
-            del self._neumann_bc[problem_name][subdomain_id]
-        self._dirichlet_bcs[problem_name][subdomain_id] = value
+        bc_dict = self._dirichlet_bcs[problem_name]
+        if subdomain_id in bc_dict:
+            del bc_dict[subdomain_id]
+            
+        bc_dict[subdomain_id] = value
 
     def add_neumann_bc(self, problem_name, subdomain_id, value):
-        if subdomain_id in self._neumann_bc[problem_name]:
-            del self._neumann_bc[problem_name][subdomain_id]
-        self._dirichlet_bcs[problem_name][subdomain_id] = value
-
+        bc_dict = self._neumann_bcs[problem_name]
+        if subdomain_id in bc_dict:
+            del bc_dict[subdomain_id]
+            
+        bc_dict[subdomain_id] = value
+        
     def make_function_spaces(self):
         # biot
-        Vp = VectorFunctionSpace(self.domain.porous_domain, "RT", 1)
-        Qp = FunctionSpace(self.domain.porous_domain, "DG", 1)
+        Vp = FunctionSpace(self.domain.porous_domain, "RT", 1)
+        Qp = FunctionSpace(self.domain.porous_domain, "DG", 0)
         U = VectorFunctionSpace(self.domain.porous_domain, "CG", 2)
 
         # stokes
-        Vf = FunctionSpace(self.domain.stokes_domain, "CG", 2)
+        Vf = VectorFunctionSpace(self.domain.stokes_domain, "CG", 2)
         Qf = FunctionSpace(self.domain.stokes_domain, "CG", 1)
         
         # lagrange multiplier
@@ -127,12 +139,22 @@ class BiotStokesProblem(object):
         First returned value is initial conditions (zero)."""
         
         # names of params
-        for parname in self.params.keys():
-            eval("{} = self.params['{}']".format(parname, parname))
+
+        dt = self.params["dt"]
+        alpha = self.params["alpha"]
+        alpha_BJS = self.params["alpha_BJS"]
+        s0 = self.params["s0"]
+        mu_f = self.params["mu_f"]
+        mu_p = self.params["mu_p"]
+        lbd_f = self.params["lbd_f"]
+        lbd_p = self.params["lbd_p"]
+        K = self.params["K"]
+        
         C_BJS = (mu_f * alpha_BJS) / sqrt(K)    
 
         # names of things needed to build matrices
-        dGamma = Measure("dx", domain=self.domain.interface)
+        dxGamma = Measure("dx", domain=self.domain.interface)
+        
         up, pp, dp, uf, pf, lbd = map(TrialFunction, self.W)
         vp, wp, ep, vf, wf, mu = map(TestFunction, self.W)
         
@@ -144,38 +166,41 @@ class BiotStokesProblem(object):
         Tvp, Tep, Tvf = map(lambda x: Trace(x, self.domain.interface),
                             [vp, ep, vf]
         )
-        nf = OuterNormal(domain.interface, [0.5, 0.5, 0.5]) # todo: verify that this is actually the right normal
-        np = -nf
 
+        nf = OuterNormal(self.domain.interface, [0.5, 0.5, 0.5]) # todo: verify that this is actually the right normal
+        np = -nf
         
         # build a bunch of matrices
+        
         Mpp = assemble(Constant(s0/dt) * pp * wp*dx)
         Adp = assemble(Constant(mu_p/K) * inner(up, vp)*dx)
         Aep = assemble(
-            Constant(mu_p/dt) * inner(sym(dp), sym(ep))*dx
-            + Constant(lbd_p) * inner(div(dp), div(ep))
+            Constant(mu_p/dt) * inner(sym(grad(dp)), sym(grad(ep)))*dx
+            + Constant(lbd_p) * inner(div(dp), div(ep))  * dx
         )
+        Af = assemble(Constant(2*mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dx)
+
         Bpvp = assemble(- inner(div(vp), pp)*dx)
         Bpep = assemble(- Constant(alpha/dt) * inner(div(ep), pp)*dx)
         Bf = assemble(- inner(div(vf), pf) * dx)
-        
 
-        Npvp, Npep, Nfvf = [assemble(lbd * inner(testfunc, n) * dGamma)
+        # matrices living on the interface
+        Npvp, Npep, Nfvf = [ii_convert(ii_assemble(lbd * dot(testfunc, n) * dxGamma))
                             for (testfunc, n) in [(Tvp, np), (Tep, np), (Tvf, nf)]]
 
         # to build sum_j ((a*tau_j), (b*tau_j)) we use a trick - see Thoughts
         Svfuf, Svfdp, Sepuf, Sepdp = [
-            assemble(
-                (inner(testfunc, trialfunc)
-                 - inner(testfunc, nf) * inner(trialfunc, nf)
-                ) * Constant(1/dt) * dGamma
-            )
-            for (testfunc, trialfunc) in [(Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)]
+            ii_convert(ii_assemble(
+                inner(testfunc, trialfunc) * Constant(1/dt) * dxGamma
+                - inner(testfunc, nf) * inner(trialfunc, nf) * Constant(1/dt) * dxGamma
+            ))
+            for (testfunc, trialfunc) in [
+                    (Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)
+            ]
         ]
         
-
-
-        # this matrix assembly is kind of memory-wasteful, so rewrite for bigger problem
+        
+        ## this matrix assembly is kind of memory-wasteful, so rewrite for bigger problem
         def _scale(matrix, c):
             """matrix*c. More specifically, takes a PETScMatrix (as returned from assemble()) 
             and returns the matrix scaled by a factor c (does NOT modify original)"""
@@ -186,29 +211,32 @@ class BiotStokesProblem(object):
         
         def _sum(matrix1, matrix2):
             """Same as the above, but matrix1+matrix2"""
-            new_matrix = as_backend_type(matrix1).mat().copy()
-            new_matrix.axpy(1., matrix2)
-            return PETScMatrix(new_matrix)
+            matrix1, matrix2 = [as_backend_type(m).mat()
+                                for m in (matrix1, matrix2)]
+            return PETScMatrix(matrix1 + matrix2)
 
         def _t(matrix):
             """Same as the above, but transpose"""
-            new_matrix = as_backend_type(matrix1).mat().copy()
-            new_matrix.transpose()
+            new_matrix = PETSc.Mat()
+            as_backend_type(matrix).mat().transpose(new_matrix)
             return PETScMatrix(new_matrix)
 
-        
-        AA = block_mat(
-            [
-                [Adp, Bpvp, 0, 0, 0, Npvp],
-                [_t(Bpvp), Mpp, _t(Bpep), 0, 0, 0],
-                [0, _t(Bpep), _sum(Aep, Sepdp), _scale(Sepuf, -1), 0, _scale(Npep, 1/dt)],
-                [0, 0, _scale(Svfdp, -1), _sum(Af, _scale(Svfuf, dt)), Bf, Nfvf]
-                [0, 0, 0, _t(Bf), 0, 0],
-                [_t(Npvp), 0, _t(_scale(Npep, 1/dt)), _t(Nfvf), 0, 0],
+        AA = [
+            [Adp, Bpvp, 0, 0, 0, Npvp],
+            [_t(Bpvp), Mpp, _t(Bpep), 0, 0, 0],
+            [0, _t(Bpep), _sum(Aep, Sepdp), _scale(Sepuf, -1), 0, _scale(Npep, 1/dt)],
+            [0, 0, _scale(Svfdp, -1), _sum(Af, _scale(Svfuf, dt)), Bf, Nfvf],
+            [0, 0, 0, _t(Bf), 0, 0],
+            [_t(Npvp), 0, _t(_scale(Npep, 1/dt)), _t(Nfvf), 0, 0],
+        ]
 
-            ]
-        )
-        AA = set_lg_rc_map(AA, self.W)
+        # block_matrix probably handles this
+        assert len(AA) == 6
+        for row in AA:
+            assert len(row) == 6
+            
+        AA = block_mat(AA)
+        # AA = set_lg_rc_map(AA, self.W)
 
         # bcs 
         up_bcs = [
@@ -244,9 +272,15 @@ class BiotStokesProblem(object):
             [],                 # pf
             []                  # lbd
         ]
-        bbcs = block_bcs(bcs, symmetric=False).apply(AA) # todo: can i put symmetric=True here?
+        bbcs = block_bc(bcs, symmetric=False).apply(AA) # todo: can i put symmetric=True here?
 
-        
+        # can make the solver now
+        A = ii_convert(AA)
+        solver = LUSolver('mumps') # this should be umfpack
+        solver.set_operator(A)
+        solver.parameters['reuse_factorization'] = True
+
+        # need indices to put data from function back into rhs
         dims = [space.dim() for space in W]
         indices = [
             PETSc.IS().createGeneral(
@@ -256,32 +290,46 @@ class BiotStokesProblem(object):
         ]
         
         # set up initial conditions
-        up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev = map(Function, self.W)
+        funcs = map(Function, self.W)
+        vecs = [f.vec() for f in funcs]
+
+        block_vec = block_vec(vecs)
+        bbcs.apply(block_vec)
         
-        # define RHS
-        def rhs(w_prev):
-            # todo: make a func which returns a vector bb
-            pass
+        x = block_to_dolfin(block_vec)
+        x_vec = as_backend_type(x).vec()
 
-
-        A = block_to_dolfin(AA)
-        solver = LUSolver('mumps') # this should be umfpack
-        solver.set_operator(A)
-        solver.parameters['reuse_factorization'] = True
-
-        yield self.w
+        # alright, we're all set
+        t = 0
+        yield [up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev]
         
         while True:
             # solve for next time step
-            print "solved"
-            yield
+            t += dt
+            # todo: set t for BCs if time-dependent and if so, reapply to A
+
+            # todo: get new RHS
+            bb = None
+            bbcs.apply(bb)
+            solver.solve(x, block_to_dolfin(bb))
+
+            # now put the x vector back into the dolfin.Functions
+            for idx, vector, function in indices, vecs, funcs:
+                x_vec.getSubVector(idx, vector) # extract from x_vec and store in vector
+                # the below shouldn't be necessary, but somehow it is
+                function.vector().zero()
+                # the below isn't just 'vector', for some reason?
+                function_vec = as_backend_type(function.vector()).vec()
+                vector.copy(function_vec)
+
+            yield funcs
         
         
     
 
 
 def doit():
-    N = 20
+    N = 10
     # domain = BiotStokesDomain2D(N)
     domain = BiotStokesDomain3D(N)
     save_to_file(
@@ -289,7 +337,13 @@ def doit():
          domain.interface, domain.full_domain],
         ["stokes.pvd", "biot.pvd", "interface.pvd", "full.pvd"],
     )
+    
     problem = BiotStokesProblem(domain, {})
+    solution = problem.get_solver()
+
+    print("First call to nesxt()")
+    solution.next()
+    print("Done with first call to nesxt() !!")
     
 def save_to_file(things, fns=None):
     if fns is None:
