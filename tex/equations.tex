@@ -353,9 +353,9 @@ Then the matrix of our system lookjs like
           
           A^d_p & B^{\vp}_p & \matzero & \matzero & \matzero & N^p_{\vp, \mult} \\ % \vp -row
           - (B^{\vp}_p)^T & \frac {s_0}{\dt} M_{\pp} & - \frac{\alpha}{\dt} (B^{\disptest}_p)^T & \matzero & \matzero & \matzero\\ % \wp -row 
-          \matzero & \alpha B^{\disptest}_p & A^e_p & - S_{\disptest, \uf} & \matzero & N^p_{\disptest, \mult}\\ % \disptest -row
+          \matzero & \alpha B^{\disptest}_p & A^e_p + S_{\disptest, \disp} & - S_{\disptest, \uf} & \matzero & N^p_{\disptest, \mult}\\ % \disptest -row
           \hline
-          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f & B_f & N^f_{\vf, \mult}\\ % \vf -row
+          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f + S_{\vf, \uf} & B_f & N^f_{\vf, \mult}\\ % \vf -row
           \matzero & \matzero & \matzero & -B_f^T & \matzero & \matzero \\ % \wf -row
           \hline
           (N^p_{\vp, \mult})^T & \matzero & \frac 1 {\dt} (N^p_{\disptest, \mult})^T & (N^f_{\vf, \mult})^T & \matzero & \matzero \\ % \multtest -row
@@ -391,9 +391,9 @@ By scaling, this seems like it could be made symmetric. Specifically, dividing t
           
           A^d_p & B^{\vp}_p & \matzero & \matzero & \matzero & N^p_{\vp, \mult} \\ % \vp -row
           (B^{\vp}_p)^T & -\frac {s_0}{\dt} M_{\pp} & \frac{\alpha}{\dt} (B^{\disptest}_p)^T & \matzero & \matzero & \matzero\\ % \wp -row 
-          \matzero & \frac {\alpha} {\dt} B^{\disptest}_p & \frac 1 {\dt}A^e_p & -\frac 1 {\dt} S_{\disptest, \uf} & \matzero &\frac 1 {\dt} N^p_{\disptest, \mult}\\ % \disptest -row
+          \matzero & \frac {\alpha} {\dt} B^{\disptest}_p & \frac 1 {\dt}A^e_p + \frac 1 {\dt} S_{\disptest, \disp} & -\frac 1 {\dt} S_{\disptest, \uf} & \matzero &\frac 1 {\dt} N^p_{\disptest, \mult}\\ % \disptest -row
           \hline
-          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f & B_f & N^f_{\vf, \mult}\\ % \vf -row
+          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f + S_{\vf, \uf} & B_f & N^f_{\vf, \mult}\\ % \vf -row
           \matzero & \matzero & \matzero & B_f^T & \matzero & \matzero \\ % \wf -row
           \hline
           (N^p_{\vp, \mult})^T & \matzero & \frac 1 {\dt} (N^p_{\disptest, \mult})^T & (N^f_{\vf, \mult})^T & \matzero & \matzero \\ % \multtest -row
