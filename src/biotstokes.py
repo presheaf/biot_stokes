@@ -1,6 +1,7 @@
 import xii
 import mshr
 import dolfin
+from block import block_mat, block_vec, block_bc
 
 from dolfin import *
 from xii import *
@@ -53,51 +54,6 @@ class BiotStokesDomain3D(object):
         self.porous_bdy_markers = porous_markers
         
 
-class BiotStokesDomain2D(object):
-    def __init__(self, N):
-        EPS = 1E-3
-        R = 0.25
-        square_domain = mshr.Rectangle(dolfin.Point(0, 0), dolfin.Point(1, 1))
-        
-        stokes_subdomain = dolfin.CompiledSubDomain(
-            "sqrt((x[1]-0.5) * (x[1]-0.5)) < R", R=R
-        )
-
-        subdomains = MeshFunction('size_t', _mesh, _mesh.topology().dim(), 0)
-
-        # Awkward marking
-        for cell in cells(_mesh):
-            x = cell.midpoint().array()
-            if stokes_subdomain.inside(x, False):
-                subdomains[cell] = 1
-            else:
-                subdomains[cell] = 0
-
-        submeshes, interface, _ = mortar_meshes(subdomains, range(2), strict=True, tol=EPS)
-
-        self._mesh = _mesh
-        self._omega_p = submeshes[0]
-        self._omega_f = submeshes[1]
-        self._gamma = interface
-
-        self._omega_p_markers = FacetFunction(self._omega_p, 0)
-        self._omega_f_markers = FacetFunction(self._omega_f, 0)
-        
-    @property
-    def full_domain(self):
-        return self._mesh
-
-    @property
-    def stokes_domain(self):
-        return self._omega_f
-
-    @property
-    def porous_domain(self):
-        return self._omega_p
-
-    @property
-    def interface(self):
-        return self._gamma
 
 
 class BiotStokesProblem(object):
@@ -135,7 +91,6 @@ class BiotStokesProblem(object):
         }
 
         self.make_function_spaces()
-        self.set_initial_conditions()
 
         self.add_neumann_bc("stokes", 2, 10)
         self.add_neumann_bc("stokes", 1, 5)
@@ -165,50 +120,155 @@ class BiotStokesProblem(object):
 
         self.W = [Vp, Qp, U, Vf, Qf, X]
 
-    def set_initial_conditions(self):
-
-        up = Function(self.Vp)
-        pp = Function(self.Qp)
-        d = Function(self.U)
-        
-        uf = Function(self.Vf)
-        pf = Function(self.Qf)
-
-        lbd = Function(self.X)
-
-        self.w_prev = [up, pp, d, uf, pf, lbd]
-
-
 
     def get_solver(self):
+        """Returns an iterator over solution values. Values are returned as a 
+        list of Functions, with the ordering being [up, pp, dp, uf, pf, lbd]. 
+        First returned value is initial conditions (zero)."""
+        
+        # names of params
         for parname in self.params.keys():
             eval("{} = self.params['{}']".format(parname, parname))
-            
-            
+        C_BJS = (mu_f * alpha_BJS) / sqrt(K)    
+
+        # names of things needed to build matrices
         dGamma = Measure("dx", domain=self.domain.interface)
-
-        up, pp, d, uf, pf, lbd = map(TrialFunction, self.W)
-        vp, wp, e, vf, wf, mu = map(TestFunction, self.W)
-
+        up, pp, dp, uf, pf, lbd = map(TrialFunction, self.W)
+        vp, wp, ep, vf, wf, mu = map(TestFunction, self.W)
         
-        Tup, Tpp, Td, Tuf, Tpf = map(lambda x: Trace(x, self.domain.interface),
-                                     [up, pp, d, uf, pf, mult]
+        # thank you, Miro!
+        Tup, Tdp, Tuf = map(lambda x: Trace(x, self.domain.interface),
+                            [up, dp, uf]
         )
         
-        Tvp, Twp, Te, Tvf, Twf = map(lambda x: Trace(x, self.domain.interface),
-                                     [vp, wp, e, vf, wf, multtest]
+        Tvp, Tep, Tvf = map(lambda x: Trace(x, self.domain.interface),
+                            [vp, ep, vf]
         )
+        nf = OuterNormal(domain.interface, [0.5, 0.5, 0.5]) # todo: verify that this is actually the right normal
+        np = -nf
 
-        Mpp = assemble(Constant(s0/dt) * pp*wp*dx)
         
-        
-        
+        # build a bunch of matrices
+        Mpp = assemble(Constant(s0/dt) * pp * wp*dx)
+        Adp = assemble(Constant(mu_p/K) * inner(up, vp)*dx)
+        Aep = assemble(
+            Constant(mu_p/dt) * inner(sym(dp), sym(ep))*dx
+            + Constant(lbd_p) * inner(div(dp), div(ep))
+        )
+        Bpvp = assemble(- inner(div(vp), pp)*dx)
+        Bpep = assemble(- Constant(alpha/dt) * inner(div(ep), pp)*dx)
+        Bf = assemble(- inner(div(vf), pf) * dx)
         
 
-        # [[Ad_p, Bvp_p, 0, 0, 0, Npvpmult],
-        #  [Bvp_pT, s0/dt Mpp, 
+        Npvp, Npep, Nfvf = [assemble(lbd * inner(testfunc, n) * dGamma)
+                            for (testfunc, n) in [(Tvp, np), (Tep, np), (Tvf, nf)]]
 
-         
+        # to build sum_j ((a*tau_j), (b*tau_j)) we use a trick - see Thoughts
+        Svfuf, Svfdp, Sepuf, Sepdp = [
+            assemble(
+                (inner(testfunc, trialfunc)
+                 - inner(testfunc, nf) * inner(trialfunc, nf)
+                ) * Constant(1/dt) * dGamma
+            )
+            for (testfunc, trialfunc) in [(Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)]
+        ]
+        
+
+
+        # this matrix assembly is kind of memory-wasteful, so rewrite for bigger problem
+        def _scale(matrix, c):
+            """matrix*c. More specifically, takes a PETScMatrix (as returned from assemble()) 
+            and returns the matrix scaled by a factor c (does NOT modify original)"""
+            
+            new_matrix = as_backend_type(matrix).mat().copy()
+            new_matrix.scale(c)
+            return PETScMatrix(new_matrix)
+        
+        def _sum(matrix1, matrix2):
+            """Same as the above, but matrix1+matrix2"""
+            new_matrix = as_backend_type(matrix1).mat().copy()
+            new_matrix.axpy(1., matrix2)
+            return PETScMatrix(new_matrix)
+
+        def _t(matrix):
+            """Same as the above, but transpose"""
+            new_matrix = as_backend_type(matrix1).mat().copy()
+            new_matrix.transpose()
+            return PETScMatrix(new_matrix)
+
+        
+        AA = block_mat(
+            [
+                [Adp, Bpvp, 0, 0, 0, Npvp],
+                [_t(Bpvp), Mpp, _t(Bpep), 0, 0, 0],
+                [0, _t(Bpep), _sum(Aep, Sepdp), _scale(Sepuf, -1), 0, _scale(Npep, 1/dt)],
+                [0, 0, _scale(Svfdp, -1), _sum(Af, _scale(Svfuf, dt)), Bf, Nfvf]
+                [0, 0, 0, _t(Bf), 0, 0],
+                [_t(Npvp), 0, _t(_scale(Npep, 1/dt)), _t(Nfvf), 0, 0],
+
+            ]
+        )
+        AA = set_lg_rc_map(AA, self.W)
+
+        # bcs 
+        up_bcs = [
+            DirichletBC(
+                self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
+                self.porous_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["darcy"]
+        ]
+
+        dp_bcs = [
+            DirichletBC(
+                self.W[2], self._dirichlet_bcs["biot"][subdomain_num],
+                self.porous_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["biot"]
+        ]
+
+        uf_bcs = [
+            DirichletBC(
+                self.W[3], self._dirichlet_bcs["stokes"][subdomain_num],
+                self.stokes_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["stokes"]
+        ]
+
+        
+        bcs = [
+            up_bcs,
+            [],                 # pp
+            dp_bcs,
+            uf_bcs,
+            [],                 # pf
+            []                  # lbd
+        ]
+        bbcs = block_bcs(bcs, symmetric=False).apply(AA) # todo: can i put symmetric=True here?
+
+        
+        dims = [space.dim() for space in W]
+        indices = [
+            PETSc.IS().createGeneral(
+                range(sum(dims[:n]), sum(dims[:n]) + dims[n])
+            )
+            for n in range(len(dims))
+        ]
+        
+        # set up initial conditions
+        up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev = map(Function, self.W)
+        
+        # define RHS
+        def rhs(w_prev):
+            # todo: make a func which returns a vector bb
+            pass
+
+
+        A = block_to_dolfin(AA)
+        solver = LUSolver('mumps') # this should be umfpack
+        solver.set_operator(A)
+        solver.parameters['reuse_factorization'] = True
+
         yield self.w
         
         while True:
@@ -239,63 +299,4 @@ def save_to_file(things, fns=None):
         f << thing
 
 
-
-def doit2():
-    n = 16
-    outer_mesh = BoxMesh(Point(-1, -1, -1), Point(1, 1, 1), n, n, n)
-
-    def domain(x):
-        select = CompiledSubDomain('std::max(std::max(fabs(x[0]-x0), fabs(x[1]-x1)), fabs(x[2]-x2)) < 0.25',
-                                   x0=0., x1=0., x2=0.)
-        select.x0 = x[0]
-        select.x1 = x[1]
-        select.x2 = x[2]
-
-        return select
-
-    import itertools
-    fs = map(domain, itertools.product(*[[-0.25, 0.25]]*3))
-    
-    subdomains = MeshFunction('size_t', outer_mesh, outer_mesh.topology().dim(), 0)
-    # Awkward marking
-    for cell in cells(outer_mesh):
-        x = cell.midpoint().array()
-        for tag, f in enumerate(fs, 1):
-            if f.inside(x, False):
-                subdomains[cell] = tag
-                break
-
-    submeshes, interface, colormap = mortar_meshes(subdomains, range(9))
-
-#     # Subdomains
-#     for cell in cells(submeshes[0]):
-#         assert not any(f.inside(cell.midpoint().array(), False) for f in fs)
-
-#     for f, mesh in zip(fs, submeshes[1:]):
-#         assert all(f.inside(cell.midpoint().array(), False) for cell in cells(mesh))
-
-#     # Interface
-#     for cell in cells(interface):
-#         x, y, z = cell.midpoint().array()
-#         assert any((near(abs(x), 0.5) and between(y, (-0.5, 0.5)) and between(z, (-0.5, 0.5)),
-#                     near(abs(y), 0.5) and between(x, (-0.5, 0.5)) and between(z, (-0.5, 0.5)),
-#                     near(abs(z), 0.5) and between(x, (-0.5, 0.5)) and between(y, (-0.5, 0.5)),
-#                     near(x, 0.0) and between(y, (-0.5, 0.5)) and between(z, (-0.5, 0.5)),
-#                     near(y, 0.0) and between(x, (-0.5, 0.5)) and between(z, (-0.5, 0.5)),
-#                     near(z, 0.0) and between(y, (-0.5, 0.5)) and between(x, (-0.5, 0.5))))
-                    
-#     # Map
-#     tdim = interface.topology().dim()
-#     for color, domains in enumerate(colormap):
-#         meshes = submeshes[domains]
-#         for mesh in meshes:
-#             mesh.init(tdim)
-#             # Each colored cell is a facet of submesh
-#             for icell in SubsetIterator(interface.marking_function, color):
-#                 # Index
-#                 mfacet = interface.parent_entity_map[mesh.id()][tdim][icell.index()]
-#                 # Actual cell
-#                 mfacet = Facet(mesh, mfacet)
-#                 # Now one of the facets of mcell must be icell
-#                 assert near(icell.midpoint().distance(mfacet.midpoint()), 0)
 doit()
