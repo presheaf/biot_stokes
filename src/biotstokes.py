@@ -77,6 +77,7 @@ class BiotStokesProblem(object):
             "lbd_f": 1.,
             "lbd_p": 1.,
             "K": 1.,
+            "Cp": 1.
             
         }
     
@@ -149,14 +150,23 @@ class BiotStokesProblem(object):
         lbd_f = self.params["lbd_f"]
         lbd_p = self.params["lbd_p"]
         K = self.params["K"]
+        Cp = self.params["Cp"]
         
         C_BJS = (mu_f * alpha_BJS) / sqrt(K)    
 
         # names of things needed to build matrices
         dxGamma = Measure("dx", domain=self.domain.interface)
+        dxDarcy = Measure("dx", domain=self.domain.porous_domain)
+        dxStokes = Measure("dx", domain=self.domain.stokes_domain)
+        
+        dsDarcy = Measure("ds", domain=self.domain.porous_domain,
+                          subdomain_data=self.domain.porous_bdy_markers)
+        dsStokes = Measure("ds", domain=self.domain.stokes_domain,
+                           subdomain_data=self.domain.stokes_bdy_markers)
         
         up, pp, dp, uf, pf, lbd = map(TrialFunction, self.W)
         vp, wp, ep, vf, wf, mu = map(TestFunction, self.W)
+        up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev = map(Function, self.W)
         
         # thank you, Miro!
         Tup, Tdp, Tuf = map(lambda x: Trace(x, self.domain.interface),
@@ -166,138 +176,134 @@ class BiotStokesProblem(object):
         Tvp, Tep, Tvf = map(lambda x: Trace(x, self.domain.interface),
                             [vp, ep, vf]
         )
+        Tr = lambda x: Trace(x, self.domain.interface)
 
-        nf = OuterNormal(self.domain.interface, [0.5, 0.5, 0.5]) # todo: verify that this is actually the right normal
-        np = -nf
+        n_Gamma_f = OuterNormal(self.domain.interface, [0.5, 0.5, 0.5]) # todo: verify that this is actually the right normal
+        n_Gamma_p = -n_Gamma_f
         
         # build a bunch of matrices
         
-        Mpp = assemble(Constant(s0/dt) * pp * wp*dx)
-        Adp = assemble(Constant(mu_p/K) * inner(up, vp)*dx)
-        Aep = assemble(
-            Constant(mu_p/dt) * inner(sym(grad(dp)), sym(grad(ep)))*dx
+        mpp = Constant(s0 / dt) * pp * wp*dx
+        adp = Constant(mu_p / K) * inner(up, vp)*dx
+        aep = (
+            Constant(mu_p / dt) * inner(sym(grad(dp)), sym(grad(ep))) * dx
             + Constant(lbd_p) * inner(div(dp), div(ep))  * dx
         )
-        Af = assemble(Constant(2*mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dx)
+        af = Constant(2*mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dx
 
-        Bpvp = assemble(- inner(div(vp), pp)*dx)
-        Bpep = assemble(- Constant(alpha/dt) * inner(div(ep), pp)*dx)
-        Bf = assemble(- inner(div(vf), pf) * dx)
+        bpvp = - inner(div(vp), pp) * dx
+        bpvpt = - inner(div(up), wp) * dx
+        bpep = - Constant(alpha/dt) * inner(div(ep), pp) * dx
+        bpept = - Constant(alpha/dt) * inner(div(dp), wp) * dx
+        bf = - inner(div(vf), pf) * dx
+        bft = - inner(div(uf), wf) * dx
 
         # matrices living on the interface
-        Npvp, Npep, Nfvf = [ii_convert(ii_assemble(lbd * dot(testfunc, n) * dxGamma))
-                            for (testfunc, n) in [(Tvp, np), (Tep, np), (Tvf, nf)]]
+        npvp, npep, nfvf = [lbd * dot(testfunc, n) * dxGamma
+                            for (testfunc, n) in [(Tvp, n_Gamma_p), (Tep, n_Gamma_p), (Tvf, n_Gamma_f)]]
+        npvpt, npept, nfvft = [mu * dot(trialfunc, n) * dxGamma
+                            for (trialfunc, n) in [(Tup, n_Gamma_p), (Tdp, n_Gamma_p), (Tuf, n_Gamma_f)]]
+
+
 
         # to build sum_j ((a*tau_j), (b*tau_j)) we use a trick - see Thoughts
-        Svfuf, Svfdp, Sepuf, Sepdp = [
-            ii_convert(ii_assemble(
-                inner(testfunc, trialfunc) * Constant(1/dt) * dxGamma
-                - inner(testfunc, nf) * inner(trialfunc, nf) * Constant(1/dt) * dxGamma
-            ))
+        svfuf, svfdp, sepuf, sepdp = [
+            
+            inner(testfunc, trialfunc) * Constant(1 / dt) * dxGamma
+            - inner(testfunc, n_Gamma_f) * inner(trialfunc, n_Gamma_f) * Constant(1 / dt) * dxGamma
             for (testfunc, trialfunc) in [
                     (Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)
             ]
         ]
         
+        a = [
+            [adp, bpvp, 0, 0, 0, npvp],
+            [bpvpt, mpp, bpept, 0, 0, 0],
+            [0, bpep, aep+ sepdp, -sepuf, 0, Constant(1/dt) * npep],
+            [0, 0, -svfdp, af+ Constant(dt)*svfuf, bf, nfvf],
+            [0, 0, 0, bft, 0, 0],
+            [npvpt, 0, Constant(1/dt) * npept , nfvft, 0, 0],
+        ]
+
+        # RHS
+        # TODO: put Neumann BCs here
+
+        nf = FacetNormal(self.domain.stokes_domain)
+        np = FacetNormal(self.domain.porous_domain)
+
+        L_pp = inner(vp, np) * Constant(0) * dsDarcy 
+        L_interface = Constant(Cp) * inner(vp, n_Gamma_p) * dxGamma
+        bpp = (
+            Constant(s0 / dt) * pp_prev * wp * dxDarcy
+            - Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
+        )
+        L_darcy = Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
+        L_stokes = Constant(0) * inner(nf , vf) * dsStokes
+
+        # L_mult = Constant(1 / dt) * inner(dp_prev, n_Gamma_p) * mu * dxGamma   # TODO: figure out why this doesn't work
+        L_mult = Constant(0) * mu * dxGamma
         
-        ## this matrix assembly is kind of memory-wasteful, so rewrite for bigger problem
-        def _scale(matrix, c):
-            """matrix*c. More specifically, takes a PETScMatrix (as returned from assemble()) 
-            and returns the matrix scaled by a factor c (does NOT modify original)"""
-            
-            new_matrix = as_backend_type(matrix).mat().copy()
-            new_matrix.scale(c)
-            return PETScMatrix(new_matrix)
+        L = [
+            L_pp + L_interface,
+            -bpp,
+            L_darcy,
+            L_stokes,
+            Constant(0) * wf * dsStokes,
+            L_mult
+
+        ]
+
+        # quick sanity check
+        N_unknowns = 6
+        assert len(a) == N_unknowns
+        for row in a:
+            assert len(row) == N_unknowns
+        assert len(L) == N_unknowns
         
-        def _sum(matrix1, matrix2):
-            """Same as the above, but matrix1+matrix2"""
-            matrix1, matrix2 = [as_backend_type(m).mat()
-                                for m in (matrix1, matrix2)]
-            return PETScMatrix(matrix1 + matrix2)
+        # # bcs 
+        # up_bcs = [
+        #     DirichletBC(
+        #         self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
+        #         self.porous_bdy_markers, subdomain_num
+        #     )
+        #     for subdomain_num in self._dirichlet_bcs["darcy"]
+        # ]
 
-        def _t(matrix):
-            """Same as the above, but transpose"""
-            new_matrix = PETSc.Mat()
-            as_backend_type(matrix).mat().transpose(new_matrix)
-            return PETScMatrix(new_matrix)
+        # dp_bcs = [
+        #     DirichletBC(
+        #         self.W[2], self._dirichlet_bcs["biot"][subdomain_num],
+        #         self.porous_bdy_markers, subdomain_num
+        #     )
+        #     for subdomain_num in self._dirichlet_bcs["biot"]
+        # ]
 
-        AA = [
-            [Adp, Bpvp, 0, 0, 0, Npvp],
-            [_t(Bpvp), Mpp, _t(Bpep), 0, 0, 0],
-            [0, _t(Bpep), _sum(Aep, Sepdp), _scale(Sepuf, -1), 0, _scale(Npep, 1/dt)],
-            [0, 0, _scale(Svfdp, -1), _sum(Af, _scale(Svfuf, dt)), Bf, Nfvf],
-            [0, 0, 0, _t(Bf), 0, 0],
-            [_t(Npvp), 0, _t(_scale(Npep, 1/dt)), _t(Nfvf), 0, 0],
-        ]
+        # uf_bcs = [
+        #     DirichletBC(
+        #         self.W[3], self._dirichlet_bcs["stokes"][subdomain_num],
+        #         self.stokes_bdy_markers, subdomain_num
+        #     )
+        #     for subdomain_num in self._dirichlet_bcs["stokes"]
+        # ]
 
-        # block_matrix probably handles this
-        assert len(AA) == 6
-        for row in AA:
-            assert len(row) == 6
-            
-        AA = block_mat(AA)
-        # AA = set_lg_rc_map(AA, self.W)
-
-        # bcs 
-        up_bcs = [
-            DirichletBC(
-                self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
-                self.porous_bdy_markers, subdomain_num
-            )
-            for subdomain_num in self._dirichlet_bcs["darcy"]
-        ]
-
-        dp_bcs = [
-            DirichletBC(
-                self.W[2], self._dirichlet_bcs["biot"][subdomain_num],
-                self.porous_bdy_markers, subdomain_num
-            )
-            for subdomain_num in self._dirichlet_bcs["biot"]
-        ]
-
-        uf_bcs = [
-            DirichletBC(
-                self.W[3], self._dirichlet_bcs["stokes"][subdomain_num],
-                self.stokes_bdy_markers, subdomain_num
-            )
-            for subdomain_num in self._dirichlet_bcs["stokes"]
-        ]
+        # bcs = [
+        #     up_bcs,
+        #     [],                 # pp
+        #     dp_bcs,
+        #     uf_bcs,
+        #     [],                 # pf
+        #     []                  # lbd
+        # ]
 
         
-        bcs = [
-            up_bcs,
-            [],                 # pp
-            dp_bcs,
-            uf_bcs,
-            [],                 # pf
-            []                  # lbd
-        ]
-        bbcs = block_bc(bcs, symmetric=False).apply(AA) # todo: can i put symmetric=True here?
+        AA = ii_assemble(a)
+        AAm = ii_convert(AA)
 
-        # can make the solver now
-        A = ii_convert(AA)
-        solver = LUSolver('mumps') # this should be umfpack
-        solver.set_operator(A)
+        w = ii_Function(self.W)
+        self.w = w
+        
+        solver = LUSolver('umfpack') # this should be umfpack
+        solver.set_operator(AAm)
         solver.parameters['reuse_factorization'] = True
-
-        # need indices to put data from function back into rhs
-        dims = [space.dim() for space in W]
-        indices = [
-            PETSc.IS().createGeneral(
-                range(sum(dims[:n]), sum(dims[:n]) + dims[n])
-            )
-            for n in range(len(dims))
-        ]
-        
-        # set up initial conditions
-        funcs = map(Function, self.W)
-        vecs = [f.vec() for f in funcs]
-
-        block_vec = block_vec(vecs)
-        bbcs.apply(block_vec)
-        
-        x = block_to_dolfin(block_vec)
-        x_vec = as_backend_type(x).vec()
 
         # alright, we're all set
         t = 0
@@ -308,43 +314,44 @@ class BiotStokesProblem(object):
             t += dt
             # todo: set t for BCs if time-dependent and if so, reapply to A
 
-            # todo: get new RHS
-            bb = None
-            bbcs.apply(bb)
-            solver.solve(x, block_to_dolfin(bb))
+            
+            bb = ii_assemble(L)
+            bbm = ii_convert(bb)            
+            
+            # bb = None
+            # bbcs.apply(bb)
+            solver.solve(w.vector(), bbm)
 
-            # now put the x vector back into the dolfin.Functions
-            for idx, vector, function in indices, vecs, funcs:
-                x_vec.getSubVector(idx, vector) # extract from x_vec and store in vector
-                # the below shouldn't be necessary, but somehow it is
-                function.vector().zero()
-                # the below isn't just 'vector', for some reason?
-                function_vec = as_backend_type(function.vector()).vec()
-                vector.copy(function_vec)
+            for i, func in enumerate([up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev]):
+                func.assign(w[i])
 
-            yield funcs
+            yield w
         
         
     
 
 
-def doit():
-    N = 10
-    # domain = BiotStokesDomain2D(N)
-    domain = BiotStokesDomain3D(N)
-    save_to_file(
-        [domain.stokes_domain, domain.porous_domain,
-         domain.interface, domain.full_domain],
-        ["stokes.pvd", "biot.pvd", "interface.pvd", "full.pvd"],
-    )
-    
-    problem = BiotStokesProblem(domain, {})
-    solution = problem.get_solver()
+N = 10
+# domain = BiotStokesDomain2D(N)
+domain = BiotStokesDomain3D(N)
+save_to_file(
+    [domain.stokes_domain, domain.porous_domain,
+     domain.interface, domain.full_domain],
+    ["stokes.pvd", "biot.pvd", "interface.pvd", "full.pvd"],
+)
 
-    print("First call to nesxt()")
-    solution.next()
-    print("Done with first call to nesxt() !!")
-    
+problem = BiotStokesProblem(domain, {})
+solution = problem.get_solver()
+
+print("First call to nesxt()")
+solution.next()
+print("Done with first call to nesxt() !!")
+solution.next()
+print("Done with second call to nesxt() !!")
+solution.next()
+solution.next()
+print("3 and 4 done!!")
+
 def save_to_file(things, fns=None):
     if fns is None:
         fns = ["tmp{}.pvd".format(i) for i, _ in enumerate(things)]
@@ -353,4 +360,4 @@ def save_to_file(things, fns=None):
         f << thing
 
 
-doit()
+# doit()
