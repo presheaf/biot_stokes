@@ -260,46 +260,46 @@ class BiotStokesProblem(object):
             assert len(row) == N_unknowns
         assert len(L) == N_unknowns
         
-        # # bcs 
-        # up_bcs = [
-        #     DirichletBC(
-        #         self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
-        #         self.porous_bdy_markers, subdomain_num
-        #     )
-        #     for subdomain_num in self._dirichlet_bcs["darcy"]
-        # ]
+        # bcs 
+        up_bcs = [
+            DirichletBC(
+                self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
+                self.porous_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["darcy"]
+        ]
 
-        # dp_bcs = [
-        #     DirichletBC(
-        #         self.W[2], self._dirichlet_bcs["biot"][subdomain_num],
-        #         self.porous_bdy_markers, subdomain_num
-        #     )
-        #     for subdomain_num in self._dirichlet_bcs["biot"]
-        # ]
+        dp_bcs = [
+            DirichletBC(
+                self.W[2], self._dirichlet_bcs["biot"][subdomain_num],
+                self.porous_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["biot"]
+        ]
 
-        # uf_bcs = [
-        #     DirichletBC(
-        #         self.W[3], self._dirichlet_bcs["stokes"][subdomain_num],
-        #         self.stokes_bdy_markers, subdomain_num
-        #     )
-        #     for subdomain_num in self._dirichlet_bcs["stokes"]
-        # ]
+        uf_bcs = [
+            DirichletBC(
+                self.W[3], self._dirichlet_bcs["stokes"][subdomain_num],
+                self.stokes_bdy_markers, subdomain_num
+            )
+            for subdomain_num in self._dirichlet_bcs["stokes"]
+        ]
 
-        # bcs = [
-        #     up_bcs,
-        #     [],                 # pp
-        #     dp_bcs,
-        #     uf_bcs,
-        #     [],                 # pf
-        #     []                  # lbd
-        # ]
-
+        bcs = [
+            up_bcs,
+            [],                 # pp
+            dp_bcs,
+            uf_bcs,
+            [],                 # pf
+            []                  # lbd
+        ]
+        
         
         AA = ii_assemble(a)
+        bbcs = block_bc(bcs, symmetric=False).apply(AA) # todo: can i put symmetric=True here?
         AAm = ii_convert(AA)
 
         w = ii_Function(self.W)
-        self.w = w
         
         solver = LUSolver('umfpack') # this should be umfpack
         solver.set_operator(AAm)
@@ -316,6 +316,7 @@ class BiotStokesProblem(object):
 
             
             bb = ii_assemble(L)
+            bbcs.apply(bb)
             bbm = ii_convert(bb)            
             
             # bb = None
