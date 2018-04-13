@@ -70,17 +70,10 @@ class CylinderBoxDomain3D(object):
 
 class AmbartsumyanMMSDomain(object):
     def __init__(self, N):
+
         EPS = 1E-3
         R = 0.3
-        # rectangle_domain = mshr.Rectangle(dolfin.Point(0, -1), dolfin.Point(1, 1))
-        top_half = mshr.Rectangle(dolfin.Point(0, 0), dolfin.Point(1, 1))
-        bottom_half = mshr.Rectangle(dolfin.Point(0, -1), dolfin.Point(1, 0))
-        _topmesh = mshr.generate_mesh(top_half, N)
-        _botmesh = mshr.generate_mesh(bottom_half, N)
-
-        _mesh = mshr.DolfinMeshUtils.merge_meshes(_topmesh, _botmesh)
-        # _mesh = mshr.generate_mesh(rectangle_domain, N)
-        # _mesh = UnitSquareMesh(N, N)
+        _mesh = RectangleMesh(Point(0, -1), Point(1, 1), N, 2*N) #check whether this should be  
 
         stokes_subdomain = dolfin.CompiledSubDomain(
             "x[1] > 0", R=R, eps=EPS
@@ -112,27 +105,22 @@ class AmbartsumyanMMSDomain(object):
 
     def mark_boundary(self):
         """Interface should be marked as 0. Do not set BCs there.
-        left, right, top, bottom = 1, 2, 3, 4"""
+        Other bdy is 1"""
         
         stokes_markers = FacetFunction("size_t", self.stokes_domain, 0)
         porous_markers = FacetFunction("size_t", self.porous_domain, 0)
 
-        interface_bdy = dolfin.CompiledSubDomain("on_boundary")
-
-        left_bdy = dolfin.CompiledSubDomain("near(x[0], 0) && on_boundary")
-        right_bdy = dolfin.CompiledSubDomain("near(x[0], 1) && on_boundary")
-        top_bdy = dolfin.CompiledSubDomain("near(x[1], 0) && on_boundary")
-        bottom_bdy = dolfin.CompiledSubDomain("near(x[1], 1) && on_boundary")
+        interface_bdy = dolfin.CompiledSubDomain("near(x[1], 1) && on_boundary")
+        other_bdy = dolfin.CompiledSubDomain("on_boundary")
 
         for markers in [stokes_markers, porous_markers]:
+            other_bdy.mark(markers, 1)
             interface_bdy.mark(markers, 0)
-            left_bdy.mark(markers, 1)
-            right_bdy.mark(markers, 2)
-            top_bdy.mark(markers, 3)
-            bottom_bdy.mark(markers, 4)
 
         self.stokes_bdy_markers = stokes_markers
         self.porous_bdy_markers = porous_markers
+
+
 
 
 
@@ -319,7 +307,10 @@ class BiotStokesProblem(object):
                 Constant(s0 / dt) * pp_prev * wp * dxDarcy
                 - Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
             )
-            L_darcy = Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
+            L_darcy = (         # bad name - honestly all of these are bad names
+                Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
+                + Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
+            )
             L_stokes = Constant(0) * inner(nf , vf) * dsStokes
 
             Tdp_prev = Trace(dp_prev, self.domain.interface)
@@ -406,12 +397,23 @@ class BiotStokesProblem(object):
 
             yield w
 
+def ambartsumyan_mms_solution():
+    # return expressions of exact solution as well as RHSes
+    fp = Expression(('pi*(alpha*exp(t)*cos(pi*x)*cos(pi*y/2) + mu_p*cos(y)*cos(pi*t))',
+                     '-pi*alpha*exp(t)*sin(pi*x)*sin(pi*y/2)/2'), degree=5)
+    gp = Expression(('pi*(K + mu_p)*exp(t)*cos(pi*x)*cos(pi*y/2)/K',
+                     '-pi*exp(t)*sin(pi*x)*sin(pi*y/2)/2'), degree=5)
+    ff = Expression(('pi*(mu_f*cos(y)*cos(pi*t) + exp(t)*cos(pi*x)*cos(pi*y/2))',
+                     '-pi*exp(t)*sin(pi*x)*sin(pi*y/2)/2'), degree=5)
+
+
 
 def doit():
-    # N = 10
-    hi, ho = 0.1, 0.1
-    # domain = AmbartsumyanMMSDomain(N)
-    domain = CylinderBoxDomain3D(hi, ho)
+    N = 10
+    domain = AmbartsumyanMMSDomain(N)
+
+    # hi, ho = 0.1, 0.1
+    # domain = CylinderBoxDomain3D(hi, ho)
 
     problem = BiotStokesProblem(domain, {})
     solution = problem.get_solver()
@@ -423,9 +425,9 @@ def doit():
     print("First call to nesxt()")
     funcs = solution.next()
     print("Done with first call to next() !!")
-    # solution.next()
-    # funcs = solution.next()
-    # print("2 and 3 done!!")
+    solution.next()
+    funcs = solution.next()
+    print("2 and 3 done!!")
     
     def save_to_file(things, fns=None):
         if fns is None:
@@ -447,31 +449,34 @@ def doit():
 
 
 
-def make_cylinder_box_mesh(mesh_fn, hi, ho, R):
+def make_cylinder_box_mesh(mesh_fn, h_ic, h_oc, h_b, Ri, Ro):
     import subprocess, os
     try:
         os.remove(mesh_fn)
     except:
         pass
     
-    with open("cylinderboxtemplate.geo", "r") as f:
+    with open("cylinderbox.geo", "r") as f:
         text = "".join(f.readlines())
 
     
-    text = text.replace("__HI__", str(hi), 1)
-    text = text.replace("__HO__", str(ho), 1)
-    text = text.replace("__R__", str(R), 1)
+    text = text.replace("__H_IC__", str(h_ic), 1)
+    text = text.replace("__H_OC__", str(h_oc), 1)
+    text = text.replace("__H_B__", str(h_b), 1)
+    text = text.replace("__Ri__", str(Ri), 1)
+    text = text.replace("__Ro__", str(Ro), 1)
     
     tmp_geo_fn = "temp_geo.geo"
     tmp_msh_fn = "temp_geo.msh"
     with open(tmp_geo_fn, "w") as f:
         f.write(text)
 
-    subprocess.call(["gmsh", "-3", tmp_geo_fn])
+    # swapangle affects the minimum allowed dihedral angle, i think
+    subprocess.call(["gmsh", "-3", tmp_geo_fn, "-swapangle", "0.03"])
     subprocess.call(["dolfin-convert", tmp_msh_fn, mesh_fn])
 
-    os.remove(tmp_geo_fn)
-    os.remove(tmp_msh_fn)
+    # os.remove(tmp_geo_fn)
+    # os.remove(tmp_msh_fn)
 
     return Mesh(mesh_fn)
 
@@ -481,3 +486,7 @@ def make_cylinder_box_mesh(mesh_fn, hi, ho, R):
     
 
 doit()
+
+# make_cylinder_box_mesh("mesh.xml", 0.1, 0.1, 0.1, 0.3, 0.6)
+# u = Function(FunctionSpace(Mesh("mesh.xml"), "CG", 1))
+# File("vizz.pvd") << u
