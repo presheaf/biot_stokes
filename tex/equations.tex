@@ -172,7 +172,7 @@ Balance of stress :
   -(\sigmabf_f \nf) \cdot \nf = \pp + C_p = \lambda  \label{eq:stressbalance1_mult}
 \end{equation}
 \begin{equation}
-  \sigmabf_f \nf + \sigmabf_p \np = 0 \: TODO: add C_p here \label{eq:stressbalance2}
+  \sigmabf_f \nf + \sigmabf_p \np = C_p \np \label{eq:stressbalance2}
 \end{equation}
 BJS condition:
 \begin{equation}
@@ -193,11 +193,7 @@ Having used a backward Euler discretization of the time derivative, \cite{ambart
     +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \nonumber \\
     + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \frac{\disp} {\dt}; \vf, \disptest \right)\nonumber \\
                    = a_{BJS}\left (0, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy} \nonumber \\
-                   + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy}\nonumber \\ \nonumber \\
-    % a_f (\uf, \vf) &+ a_p^d(\up, \vp) + a_p^e(\disp, \disptest)  + a_{BJS}\left (\uf, \frac {\disp} {\dt}; \vf, \disptest \right) \label{eq:varform1} \\
-    %                & + b_f(\vf, \pf) + b_p(\vp, \pp) + \alpha b_p(\disptest, \pp)   \nonumber \\
-    %                & + b_{\interface}(\vf, \vp, \disptest; \mult) \nonumber \\
-    %                &= a_{BJS}\left (\uf, \frac {\disp^{n-1}} {\dt}; \vf, \disptest \right)  + b_{\interface}(\vf, \vp, \disptest; C_p) \nonumber \\ 
+                   + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\nonumber \\ \nonumber \\
     \inner{s_0 \frac {\pp} {\dt}}{\wp}_{\darcy}  &- \alpha b_p\left ( \frac{\disp} {\dt}, \wp \right ) - b_p(\up, \wp) - b_f(\uf, \wf) \label{eq:varform2}
     \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right ) \nonumber \\ \nonumber \\
     b_{\interface}\left (\uf, \up, \frac {\disp} {\dt}; \multtest \right ) &= b^{\disptest}_{\interface}\left (\frac {\disp^{n-1}} {\dt}; \multtest \right ) \label{eq:varform3}
@@ -249,8 +245,8 @@ Next, once we add all these equations together, we will have to handle the sum o
 We start with $\intI \pp \vp \cdot \np$. By \eqref{eq:stressbalance1_mult}, $\pp = \mult - C_p$ on \interface, so
 $$I_{\vp} = \intI \pp \vp \cdot \np = \intI \mult \vp \cdot \np - \intI C_p \vp \cdot \np$$
 
-The second term can then go live on the right hand side. Next, we treat the other two interface terms. By \eqref{eq:stressbalance2}, $\sigmabf_f \nf = - \sigmabf_p \np$, so we have that $$I_{\vf} + I_{\disptest} = \intI (\vf - \disptest) \cdot \sigmabf_f \nf$$
-Next, note that the BJS condition \eqref{eq:BJS} gives us information on the tangential component of $\sigmabf_f \nf$, while \eqref{eq:stressbalance1_mult} gives us information on the normal component. As $\nf, \taubf_1, \taubf_2$ form an orthonormal system, we have that\footnote{This is just use of the fact when a vector $\mathbf{v}$ is written in a basis $\mathbf{e}_i$, the coefficient of $\mathbf{e}_i$    }
+The second term can then go live on the right hand side. Next, we treat the other two interface terms. By \eqref{eq:stressbalance2}, $\sigmabf_p \np = - \sigmabf_f \nf + C_p \np$, so we have that $$I_{\vf} + I_{\disptest} = \intI (\vf - \disptest) \cdot \sigmabf_f \nf + \intI C_p \disptest \cdot  \np$$
+Again, the second term can go on the right hand side. Next, note that the BJS condition \eqref{eq:BJS} gives us information on the tangential component of $\sigmabf_f \nf$, while \eqref{eq:stressbalance1_mult} gives us information on the normal component. As $\nf, \taubf_1, \taubf_2$ form an orthonormal system, we have that\footnote{This is just use of the fact when a vector $\mathbf{v}$ is written in a basis $\mathbf{e}_i$, the coefficient of $\mathbf{e}_i$    }
 \begin{align*}
   \vf - \disptest = \: &\nf ((\vf - \disptest) \cdot \nf) + \sum_j \taubf_j ((\vf - \disptest) \cdot \taubf_j) \\
   \Longrightarrow \hspace{0.02\textwidth}  (\sigmabf_f \nf) \cdot (\vf - \disptest) = & \: ((\sigmabf_f \nf) \cdot \nf) \: ((\vf - \disptest) \cdot \nf) \\
@@ -277,7 +273,8 @@ We have now derived all the necessary identities, and summing them all yields th
 \begin{align*}
   a_f(\uf, \vf) +& b_f(\vf, \pf)  + a^e_p(\disp, \disptest)  \\ +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \\
   + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \ddt{\disp}; \vf, \disptest \right)\\
-      = \inner{\vp}{C_p\np}_{\interface} +& (\sigmabf_f\nf, \vf)_{\stokesbdy} + (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy}\\
+  = \inner{\vp}{C_p\np}_{\interface} +& (\sigmabf_f\nf, \vf)_{\stokesbdy} + (\sigmabf_p\np, \disptest)_{\darcybdy} \\
+  + &(\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\\
 \end{align*}
 
 If \ddt{\disp} is now discretized by a backward Euler difference, this is exactly \eqref{eq:varform1}.
