@@ -71,9 +71,6 @@ class CylinderBoxDomain3D(object):
 class AmbartsumyanMMSDomain(object):
     def __init__(self, N):
 
-        EPS = 1E-3
-        R = 0.3
-        # check whether this should be
         _mesh = RectangleMesh(Point(0, -1), Point(1, 1), N, 2 * N)
 
         stokes_subdomain = dolfin.CompiledSubDomain("x[1] > 0")
@@ -196,6 +193,19 @@ class BiotStokesProblem(object):
             Constant(0)
         ]
 
+    def get_initial_conditions(self):
+        """Override this to add initial conditions different from zero.
+        Order: up, pp, dp, uf, pp. (no lambda)"""
+        D = self.domain.dimension
+        return [
+            Constant([0] * D),
+            Constant(0),
+            Constant([0] * D),
+            Constant([0] * D),
+            Constant(0),
+        ]
+
+    
     def get_solver(self):
         """Returns an iterator over solution values. Values are returned as a 
         list of Functions, with the ordering being [up, pp, dp, uf, pf, lbd]. 
@@ -248,14 +258,15 @@ class BiotStokesProblem(object):
         # build a bunch of matrices
 
         mpp = Constant(s0 / dt) * pp * wp * dx
-        adp = Constant(mu_p / K) * inner(up, vp) * dx
-        aep = (
-            Constant(mu_p / dt) * inner(sym(grad(dp)), sym(grad(ep))) * dx
+
+        adp = Constant(mu_p / K) * inner(up, vp) * dxDarcy
+        aep = Constant(1/dt) * (
+            Constant(mu_p) * inner(sym(grad(dp)), sym(grad(ep))) * dx
             + Constant(lbd_p) * inner(div(dp), div(ep)) * dx
         )
         af = Constant(2 * mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dx
 
-        bpvp = - inner(div(vp), pp) * dx
+        bpvp = - inner(div(vp), pp) * dxDarcy
         bpvpt = - inner(div(up), wp) * dx
         bpep = - Constant(alpha / dt) * inner(div(ep), pp) * dx
         bpept = - Constant(alpha / dt) * inner(div(dp), wp) * dx
@@ -263,17 +274,21 @@ class BiotStokesProblem(object):
         bft = - inner(div(uf), wf) * dx
 
         # matrices living on the interface
-        npvp, npep, nfvf = [lbd * dot(testfunc, n) * dxGamma
-                            for (testfunc, n) in [(Tvp, n_Gamma_p), (Tep, n_Gamma_p), (Tvf, n_Gamma_f)]]
-        npvpt, npept, nfvft = [mu * dot(trialfunc, n) * dxGamma
-                               for (trialfunc, n) in [(Tup, n_Gamma_p), (Tdp, n_Gamma_p), (Tuf, n_Gamma_f)]]
+        npvp, npep, nfvf = [
+            lbd * dot(testfunc, n) * dxGamma
+            for (testfunc, n) in [(Tvp, n_Gamma_p), (Tep, n_Gamma_p), (Tvf, n_Gamma_f)]
+        ]
+        npvpt, npept, nfvft = [
+            mu * dot(trialfunc, n) * dxGamma
+            for (trialfunc, n) in [(Tup, n_Gamma_p), (Tdp, n_Gamma_p), (Tuf, n_Gamma_f)]
+        ]
 
         # to build sum_j ((a*tau_j), (b*tau_j)) we use a trick - see Thoughts
         svfuf, svfdp, sepuf, sepdp = [
-
-            inner(testfunc, trialfunc) * Constant(1 / dt) * dxGamma
-            - inner(testfunc, n_Gamma_f) * inner(trialfunc,
-                                                 n_Gamma_f) * Constant(1 / dt) * dxGamma
+            Constant(1 / dt) * Constant(C_BJS) * (
+                inner(testfunc, trialfunc)  * dxGamma
+                - inner(testfunc, n_Gamma_f) * inner(trialfunc, n_Gamma_f) * dxGamma
+            )
             for (testfunc, trialfunc) in [
                 (Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)
             ]
@@ -281,12 +296,33 @@ class BiotStokesProblem(object):
 
         a = [
             [adp, bpvp, 0, 0, 0, npvp],
-            [bpvpt, mpp, bpept, 0, 0, 0],
+            [bpvpt, -mpp, bpept, 0, 0, 0],
             [0, bpep, aep + sepdp, -sepuf, 0, Constant(1 / dt) * npep],
             [0, 0, -svfdp, af + Constant(dt) * svfuf, bf, nfvf],
             [0, 0, 0, bft, 0, 0],
             [npvpt, 0, Constant(1 / dt) * npept, nfvft, 0, 0],
         ]
+
+        # poisson_forms = [
+        #     (inner(testfunc, trialfunc) + inner(grad(testfunc), grad(trialfunc))) * dx
+        #     for testfunc, trialfunc in zip(
+        #         [vp, wp, ep, vf, wf, mu],
+        #         [up, pp, dp, uf, pf, lbd]
+        #     )
+        # ]
+
+        # a = [
+        #     [poisson_forms[i] if j == i else 0
+        #      for j in range(6)]
+        #     for i in range(6)
+        # ]
+
+        # for i in range(6):
+        #     for j in range(6):
+        #         if i == j:
+        #             assert a[i][j] == poisson_forms[i]
+        #         else:
+        #             assert a[i][j] == 0
 
         # quick sanity check
         N_unknowns = 6
@@ -294,7 +330,7 @@ class BiotStokesProblem(object):
         for row in a:
             assert len(row) == N_unknowns
 
-        def compute_RHS(dp_prev, neumann_bcs, t):
+        def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
             nf = FacetNormal(self.domain.stokes_domain)
             np = FacetNormal(self.domain.porous_domain)
 
@@ -321,14 +357,16 @@ class BiotStokesProblem(object):
             for expr in f_p, q_p, f_f, q_f:
                 expr.t = t
 
-            L_darcy = inner(vp, np) * Constant(0) * \
-                dsDarcy + darcy_neumann_terms
+            L_darcy = (
+                darcy_neumann_terms
+                + inner(vp, np) * Constant(0) * dsDarcy
+            )
             L_interface = Constant(Cp) * inner(Tvp, n_Gamma_p) * dxGamma
             bpp = (
                 Constant(s0 / dt) * pp_prev * wp * dxDarcy
-                - Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
+                + Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
             )
-            L_biot = (         # bad name - honestly all of these are bad names
+            L_biot = (
                 Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
                 + Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
                 + biot_neumann_terms
@@ -342,10 +380,10 @@ class BiotStokesProblem(object):
 
             L = [
                 L_darcy + L_interface,
-                -bpp + inner(q_p, wp) * dxDarcy,
-                L_biot + inner(f_p, ep) * dxDarcy,
+                -bpp - inner(q_p, wp) * dxDarcy,
+                L_biot + Constant(1/dt) * inner(f_p, ep) * dxDarcy,
                 L_stokes + inner(f_f, vf) * dxStokes,
-                Constant(0) * wf * dsStokes + inner(q_f, wf) * dxStokes,
+                -inner(q_f, wf) * dxStokes,
                 L_mult
 
             ]
@@ -412,8 +450,16 @@ class BiotStokesProblem(object):
         solver.set_operator(AAm)
         solver.parameters['reuse_factorization'] = True
 
-        # alright, we're all set
+        # alright, we're all set - now set initial conditions and solve
         t = 0
+
+        initial_conditions = self.get_initial_conditions()
+        for func, func_0 in zip(
+                [up_prev, pp_prev, dp_prev, uf_prev, pf_prev], initial_conditions
+        ):
+            func_0.t = 0        # should be unnecessary
+            func.assign(func_0)
+            
         yield t, [up_prev, pp_prev, dp_prev, uf_prev, pf_prev, lbd_prev]
 
         while True:
@@ -421,7 +467,7 @@ class BiotStokesProblem(object):
             t += dt
             update_t_in_dirichlet_bcs(t)
 
-            L = compute_RHS(dp_prev, self._neumann_bcs, t)
+            L = compute_RHS(dp_prev, pp_prev, self._neumann_bcs, t)
             bb = ii_assemble(L)
             bbcs.apply(bb)
             bbm = ii_convert(bb)
@@ -440,7 +486,8 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         params = BiotStokesProblem.default_params()
         for k in params:
             params[k] = 1
-        params["dt"] = 1E-3
+        params["dt"] = 1E-4
+        params["Cp"] = 0
 
         super(AmbartsumyanMMSProblem, self).__init__(domain, params)
         up_e, _, dp_e, uf_e, _ = self.exact_solution()
@@ -456,20 +503,20 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             (
                 "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
                 "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
-            ), t=0, degree=5
+            ), t=0, degree=2
         )
 
-        qf = Expression("-2*pi*cos(pi*t)", t=0, degree=5)
+        qf = Expression("-2*pi*cos(pi*t)", t=0, degree=2)
 
         fp = Expression(
             (
                 "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
                 "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
-            ), t=0, degree=5
+            ), t=0, degree=2
         )
 
         qp = Expression(
-            "exp(t)*sin(pi*x[0])*cos(pi*x[1]/2) + 5*pi*pi*exp(t)*sin(pi*x[0])*cos(pi*x[1]/2)/4 - 2*pi*cos(pi*t)", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos(pi*x[1]/2) + 5*pi*pi*exp(t)*sin(pi*x[0])*cos(pi*x[1]/2)/4 - 2*pi*cos(pi*t)", degree=2, t=0
         )
 
         return ff, qf, fp, qp
@@ -503,6 +550,65 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         )
 
         return up_e, pp_e, dp_e, uf_e, pf_e
+    
+    def get_initial_conditions(self):
+        exprs = self.exact_solution()
+        for expr in exprs:
+            expr.t = 0
+        return exprs
+    ## original (not poisson)
+    # def _get_source_terms(self):
+    #     ff = Expression(
+    #         (
+    #             "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
+    #             "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
+    #         ), t=0, degree=5
+    #     )
+
+    #     qf = Expression("-2*pi*cos(pi*t)", t=0, degree=5)
+
+    #     fp = Expression(
+    #         (
+    #             "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
+    #             "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
+    #         ), t=0, degree=5
+    #     )
+
+    #     qp = Expression(
+    #         "exp(t)*sin(pi*x[0])*cos(pi*x[1]/2) + 5*pi*pi*exp(t)*sin(pi*x[0])*cos(pi*x[1]/2)/4 - 2*pi*cos(pi*t)", degree=5, t=0
+    #     )
+
+    #     return ff, qf, fp, qp
+
+    # def exact_solution(self):
+    #     """Return exact solution as dolfin.Expressions"""
+    #     up_e = Expression(
+    #         (
+    #             "pi * exp(t) * -cos(pi * x[0]) * cos(pi * x[1] / 2)",
+    #             "pi * exp(t) * sin(pi * x[0]) * sin(pi * x[1] / 2) / 2"
+    #         ), t=0, degree=5
+    #     )
+    #     pp_e = Expression(
+    #         "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2)", t=0, degree=5)
+    #     dp_e = Expression(
+    #         (
+    #             "sin(pi * t) * (-3 * x[0] + cos(x[1]))",
+    #             "sin(pi * t) * (x[1] + 1)"
+    #         ), t=0, degree=5
+    #     )
+
+    #     uf_e = Expression(
+    #         (
+    #             "pi * cos(pi * t) * (-3 * x[0] + cos(x[1]))",
+    #             "pi * cos(pi * t) * (x[1] + 1)"
+    #         ), t=0, degree=5
+    #     )
+    #     pf_e = Expression(
+    #         "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2) + 2 * pi * cos(pi * t) + Cp",
+    #         t=0, degree=5, Cp=self.params["Cp"]
+    #     )
+
+    #     return up_e, pp_e, dp_e, uf_e, pf_e
 
     def compute_errors(self, funcs, t):
         """Given a list of solution values, set the time in all the exact sol
@@ -532,20 +638,20 @@ def run_MMS():
             with open(fn, "a") as f:
                 f.write(
                     "{:.4f}: {:.10f}\n".format(
-                        t, errornorm(expr, func, norm_type=norm, degree_rise=3, mesh=func.function_space().mesh())
+                        t, errornorm(
+                            expr, func, norm_type=norm, degree_rise=3, mesh=func.function_space().mesh())
                     )
                 )
 
-    N = 10
+    N = 20
 
     problem = AmbartsumyanMMSProblem(N)
 
     solution = problem.get_solver()
+    names = ["up", "pp", "dp", "uf", "pf", "lbd"]
     global funcs
-    funcs = solution.next()
     result_dir = "mms_results"
 
-    
     def in_dir(fn):
         return os.path.join(result_dir, fn)
 
@@ -554,16 +660,32 @@ def run_MMS():
     err_fns = map(in_dir, ["up_e.txt", "pp_e.txt",
                            "dp_e.txt", "uf_e.txt", "pf_e.txt"])
     # cleanup old files
+    import itertools
     for fn in itertools.chain(solution_fns, err_fns):
         os.remove(fn)
-    
-    Nt = 10
-    for i in range(Nt+1):
-        print "\rAt timestep {:>3d} of {}".format(i, Nt),
+
+    Nt = 3
+    for i in range(Nt + 1):
         t, funcs = solution.next()
+        print "\r Done with timestep {:>3d} of {}".format(i, Nt),
         save_to_file(funcs, solution_fns)
         save_errors(t, list(funcs)[:5], problem.exact_solution(),
                     err_fns, ["l2"] * 5)
+
+    print ""
+    for func, expr, name in zip(list(funcs)[:5], problem.exact_solution(), names[:5]):
+        # func2 = Function(func.function_space())
+        # func2.assign(expr)
+        s = (
+            "err_{}: {:.10f}\n".format(
+                name, errornorm(
+                    expr, func,
+                    norm_type="l2", degree_rise=3,
+                    mesh=func.function_space().mesh()
+                )
+            )
+        )
+        print s
 
 
 def make_cylinder_box_mesh(mesh_fn, h_ic, h_oc, h_b, Ri, Ro):
