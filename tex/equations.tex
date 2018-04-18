@@ -138,13 +138,12 @@ Next, here are a bunch of bilinear forms used in the problem:
 
 
 \section{Strong formulation}
-These are all ignoring body force and source terms. So it's okay to put stuff on the right hand sides if you want to.
 
 Stokes (applies in \stokes):
 \begin{subequations}
   \begin{align}
-    - \div \sigmabf_f (\uf, \pf) = 0    \label{eq:stokes_stress} \\
-    \div \uf = 0    \label{eq:stokes_conservation}
+    - \div \sigmabf_f (\uf, \pf) = f_f    \label{eq:stokes_stress} \\
+    \div \uf = q_f    \label{eq:stokes_conservation}
   \end{align}
 \end{subequations}
 
@@ -157,8 +156,8 @@ Darcy (applies in \darcy):
 Biot (applies in \darcy):
 \begin{subequations}
   \begin{align}
-    - \div \sigmabf_p (\disp, \pp) = 0     \label{eq:biot_stress} \\
-    \ddt{} \left ( s_0 \pp + \alpha \div \disp \right ) + \div \up = 0    \label{eq:biot_conservation}
+    - \div \sigmabf_p (\disp, \pp) = f_p     \label{eq:biot_stress} \\
+    \ddt{} \left ( s_0 \pp + \alpha \div \disp \right ) + \div \up = q_p    \label{eq:biot_conservation}
   \end{align}
 \end{subequations}
 \section{Interface conditions}
@@ -192,10 +191,11 @@ Having used a backward Euler discretization of the time derivative, \cite{ambart
     a_f(\uf, \vf) +& b_f(\vf, \pf)  + a^e_p(\disp, \disptest) \label{eq:varform1} \\
     +&\alpha b_p(\disptest, \pp)  + a_p^d(\up, \vp) + b_p(\vp, \pp)  \nonumber \\
     + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \frac{\disp} {\dt}; \vf, \disptest \right)\nonumber \\
-                   = a_{BJS}\left (0, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy} \nonumber \\
-                   + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\nonumber \\ \nonumber \\
+                   = a_{BJS}\left (0, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy}  \nonumber \\
+    + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\nonumber \\
+    + & \inner{f_f}{\vf}_{\stokes} + \inner{f_p}{\disptest}_{\darcy}  \nonumber \\ \nonumber \\ %
     \inner{s_0 \frac {\pp} {\dt}}{\wp}_{\darcy}  &- \alpha b_p\left ( \frac{\disp} {\dt}, \wp \right ) - b_p(\up, \wp) - b_f(\uf, \wf) \label{eq:varform2}
-    \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right ) \nonumber \\ \nonumber \\
+    \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right )  + \inner{q_f}{\wf}_{\stokes} + \inner{q_p}{\wp}_{\darcy}  \nonumber \\ \nonumber \\
     b_{\interface}\left (\uf, \up, \frac {\disp} {\dt}; \multtest \right ) &= b^{\disptest}_{\interface}\left (\frac {\disp^{n-1}} {\dt}; \multtest \right ) \label{eq:varform3}
   \end{align}
 \end{subequations}
@@ -277,7 +277,7 @@ We have now derived all the necessary identities, and summing them all yields th
   + &(\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\\
 \end{align*}
 
-If \ddt{\disp} is now discretized by a backward Euler difference, this is exactly \eqref{eq:varform1}.
+If \ddt{\disp} is now discretized by a backward Euler difference, this is exactly \eqref{eq:varform1}, if we remember that we ignored the source term and thus need to add it.
 
 The next two are not as bad. \eqref{eq:varform2} is just \eqref{eq:stokes_conservation} multiplied by \wf integrated over \stokes plus \eqref{eq:biot_conservation} multiplied by \wp integrated over Darcy.
 
@@ -334,6 +334,7 @@ Vectors
 \item[$L^{\sigmabf_p}$] \defeq \matrixform{\inner{\sigmabf_p \np}{\disptest}_{\darcybdy}}
 \item[$L^{\pp}$] \defeq \matrixform{\inner{\pp \np}{\vp}_{\darcybdy}}
 \item[$L^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
+\item[$F_f, F_p, Q_f, Q_p$] \defeq \matrixform{\text{source terms}}
 \item[$\uf, \pf, \ldots$] \defeq vector of dofs
   
 \end{description}
@@ -369,10 +370,10 @@ Then the matrix of our system lookjs like
           = \newline
                       \left[\begin{array}{@{}c@{}}
                 L^{\pp} + L^{\Delta p} \\
-                              b^{\pp} \\
-                L^{\sigma_p} \\
-                L^{\sigma_f} \\
-                \matzero \\
+                              b^{\pp} + Q_p \\
+                L^{\sigma_p} + F_p\\
+                L^{\sigma_f} + F_f\\
+                Q_f \\
                 \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
         \end{array}\right]
     \]
@@ -407,81 +408,14 @@ By scaling, this seems like it could be made symmetric. Specifically, dividing t
           = \newline
                       \left[\begin{array}{@{}c@{}}
                 L^{\pp} + L^{\Delta p} \\
-                              -b^{\pp} \\
-                              \frac 1 {\dt}L^{\sigma_p} \\
-                L^{\sigma_f} \\
-                \matzero \\
+                              -b^{\pp} - Q_p\\
+                              \frac 1 {\dt}L^{\sigma_p} + \frac 1 {\dt} F_p\\
+                L^{\sigma_f} + F_f\\
+                - Q_f\\
                 \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
         \end{array}\right]
 \]
 This makes the $(\wp, \pp)$ block negative, though.
-
-Now, abuse notation to let $N_*, S_*$ instead mean the matrices of the bilinear forms defined above, and define a couple more:
-\begin{center}
-  \begin{multicols}{2}
-    Matrices
-\begin{description}
-\item[$A_f$] \defeq \matrixform{a_f(\uf, \vf)}
-\item[$A^d_p$]\defeq  \matrixform{a_p^d(\up, \vp)}
-\item[$A^e_p$]\defeq  \matrixform{a_p^e(\disp, \disptest)}
-\item[$B_f$]\defeq  \matrixform{b_f(\vf, \pf)}
-\item[$B^{\vp}_p$]\defeq  \matrixform{b_p(\vp, \pp)}
-\item[$B^{\disptest}_p$]\defeq  \matrixform{b_p(\disptest, \pp)}
-\item[$M_*$] \defeq mass matrix of unknown $* $
-\end{description}
-\columnbreak
-Vectors
-\begin{description}
-\item[$L^{\sigmabf_f}$] \defeq \matrixform{\inner{\sigmabf_f \nf}{\vf}_{\stokesbdy}}
-\item[$L^{\sigmabf_p}$] \defeq \matrixform{\inner{\sigmabf_p \np}{\disptest}_{\darcybdy}}
-\item[$L^{\pp}$] \defeq \matrixform{\inner{\pp \np}{\vp}_{\darcybdy}}
-\item[$L^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
-\item[$\uf, \pf, \ldots$] \defeq vector of dofs
-  
-\end{description}
-
-\end{multicols}
-\end{center}
-Note that although some of these vectors involve the unknowns, but appear on the RHS, they will be known because of BCs.
-
-
-Then the matrix of our system lookjs like
-\[ \renewcommand{\arraystretch}{1.8}
-  \left[\begin{array}{@{}ccc|cc|c@{}}
-          % \up & \pp & \disp & \uf & \pf & \mult \\
-          
-          A^d_p & B^{\vp}_p & \matzero & \matzero & \matzero & N^p_{\vp, \mult} \\ % \vp -row
-          - (B^{\vp}_p)^T & \frac {s_0}{\dt} M_{\pp} & - \frac{\alpha}{\dt} (B^{\disptest}_p)^T & \matzero & \matzero & \matzero\\ % \wp -row 
-          \matzero & \alpha B^{\disptest}_p & A^e_p & - S_{\disptest, \uf} & \matzero & N^p_{\disptest, \mult}\\ % \disptest -row
-          \hline
-          \matzero & \matzero & - \frac 1 {\dt} S_{\vf, \disp} & A_f & B_f & N^f_{\vf, \mult}\\ % \vf -row
-          \matzero & \matzero & \matzero & -B_f^T & \matzero & \matzero \\ % \wf -row
-          \hline
-          (N^p_{\vp, \mult})^T & \matzero & \frac 1 {\dt} (N^p_{\disptest, \mult})^T & (N^f_{\vf, \mult})^T & \matzero & \matzero \\ % \multtest -row
-
-        \end{array}\right]
-      \left[\begin{array}{@{}c@{}}
-                \up \\
-                \pp \\
-                \disp \\
-                \uf \\
-                \pf \\
-                \mult
-            \end{array}\right]
-          = \newline
-                      \left[\begin{array}{@{}c@{}}
-                L^{\pp} + L^{\Delta p} \\
-                              R^{\pp} \\
-                L^{\sigma_p} \\
-                L^{\sigma_f} \\
-                \matzero \\
-                \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
-        \end{array}\right]
-\]
-where
-$$R^{\pp} = \frac {s_0}{\dt} M_{\pp} \pp^{n-1} - \frac {\alpha} {\dt} (B_p^{\disptest})^T \disp^{n-1}$$
-
-By scaling the appropriate unknowns, this seems like it could be made symmetric.
 
 
 \section{Boundary conditions}
