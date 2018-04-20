@@ -1,6 +1,7 @@
 from sympy import diff, symbols, pi, cos, sin, exp, sqrt
+import sympy
 
-x, y, t = symbols("x y t")
+x, y, t = symbols("x[0] x[1] t")
 
 
 def laplace(u):
@@ -20,6 +21,14 @@ def grad(u):
     """Given a sympy expression, return its gradient as a SympyVector"""
     return SympyVector(diff(u, x), diff(u, y))
 
+def vector_grad(u):
+    """Given a SympyVector, return its gradient as a SympyMatrix"""
+    return SympyMatrix(
+        [
+            [diff(u.x, x), diff(u.y, x)],
+            [diff(u.x, y), diff(u.y, y)],
+        ]
+    )
 
 def div(u):
     u1, u2 = u.x, u.y
@@ -33,7 +42,6 @@ def div_sym_grad(u):
         diff(u.x, x, x) + (diff(u.x, y, y) + diff(u.y, y, x)) / 2,
         diff(u.y, x, x) + (diff(u.y, y, y) + diff(u.x, y, x)) / 2,
     )
-
 
 def inner(u, v):
     """Given 2 SympyVectors, computes their scalar product."""
@@ -56,6 +64,9 @@ class SympyVector(object):
     def __sub__(self, other):
         return self + (-1) * other
 
+    def __neg__(self):
+        return (-1) * self
+
     def __iter__(self):
         return self._l.__iter__()    # copy to prevent modification of list
 
@@ -65,13 +76,13 @@ class SympyVector(object):
         except:
             u = self
 
-        strings = map(str, u)
-        N = max(map(len, strings))
+        strings = map(sympy.printing.ccode, u)
+        # N = max(map(len, strings))
 
-        return "".join(
-            "|  {}  |\n".format(si.center(N))
+        return "(\n  {}\n)".format(",\n  ".join(
+            "\"{}\"".format(si)
             for si in strings
-        )
+        ))
 
     def __len__(self):
         return len(self._l)
@@ -105,6 +116,86 @@ class SympyVector(object):
         return SympyVector(*[vi.simplify() for vi in self])
 
 
+class SympyMatrix(object):
+    """Wrapper around a list of sympy exprs for doing componentwise addition"""
+
+    def __init__(self, rows, flat=False):
+        """Stores internally as flat list. If flat=True, treat rows as 'list sum' of rows."""
+        if not flat:
+            assert (len(rows) == 2 or len(rows) == 3)
+            for row in rows:
+                assert len(row) == len(rows)
+            self._l = sum(rows, [])
+        else:
+            assert len(rows) == 4 or len(rows) == 9
+            self._l = rows
+
+    def __add__(self, other):
+        return SympyMatrix(
+            *[si + oi for si, oi in zip(self, other)],
+            flat=True
+        )
+
+    def __sub__(self, other):
+        return self + (-1) * other
+
+    def __neg__(self):
+        return (-1) * self
+
+    def __iter__(self):
+        return self._l.__iter__()    # copy to prevent modification of list
+
+    def __repr__(self):
+        try:
+            u = self.simplify()
+        except:
+            u = self
+
+        N = len(self)
+        strings = [["\"{}\"".format(sympy.printing.ccode(self[i,j])) for j in range(N)] for i in range(N)]
+        
+        L = max(map(lambda r: max(map(len, r)), strings))
+
+        rows = ["({})".format(",  ".join(map(lambda s: s.center(L), row))) for row in strings]
+        
+        
+
+        return "(\n  {}\n)".format(",\n  ".join(
+            "{}".format(ri)
+            for ri in rows
+        ))
+
+    def __len__(self):          # dimension, not number of elts
+        if len(self._l) == 4:
+            return 2
+        elif len(self._l) == 9:
+            return 3
+        raise Exception
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
+    def __mul__(self, other):
+        try:                    # checks that you are multiplying by a scalar
+            # otherwise, vector*vector works but isn't what you expect
+            len(other)
+        except TypeError:
+            pass
+        return SympyMatrix(
+            *[other * si for si in self],
+            flat=True
+        )
+
+    def __getitem__(self, key):
+        assert len(key) == 2
+        i, j = key
+        N = len(self)
+        return self._l[N*i + j]
+
+    def simplify(self):
+        return SympyMatrix(*[vi.simplify() for vi in self])
+
+
 # problem-specific stuff
 # parameters
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
@@ -118,6 +209,7 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
+## stokes/darcy/biot
 def norm_sym_grad(u, n):
     """Given SympyVectors u, n, computes D(u) * n, where * is matrix/vector multiplication"""
     Du_x = SympyVector(diff(u.x, x), (diff(u.x, y) + diff(u.y, x)) / 2)
@@ -149,15 +241,40 @@ def biot_RHS_qp(dp, pp, up):
     ddt = diff(s0 * pp + alpha * div(dp), t)
     return ddt + div(up)
 
+# ## Poisson
+# def stokes_poisson_RHS_ff(uf):
+#     return uf-vector_laplace(uf)
 
-def ambartsumyan_mms_solution():
-    up = pi * exp(t) * SympyVector(-cos(pi * x) * cos(pi * y / 2),
-                                   sin(pi * x) * sin(pi * y / 2) / 2)
-    pp = exp(t) * sin(pi * x) * cos(pi * y / 2)
-    dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+# def stokes_poisson_RHS_qf(pf):
+#     return pf-laplace(pf)
 
-    uf = pi * cos(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
-    pf = exp(t) * sin(pi * x) * cos(pi * y / 2) + 2 * pi * cos(pi * t) + DP
+# def biot_poisson_RHS_fp(dp):
+
+
+# def darcy_poisson_RHS_gp(up):
+#     return -vector_laplace(up)
+
+# def biot_poisson_RHS_qp(pp):
+#     return -laplace(pp)
+
+
+# def ambartsumyan_mms_solution():
+#     up = pi * exp(t) * SympyVector(-cos(pi * x) * cos(pi * y / 2),
+#                                    sin(pi * x) * sin(pi * y / 2) / 2)
+#     pp = exp(t) * sin(pi * x) * cos(pi * y / 2)
+#     dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+
+#     uf = pi * cos(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+#     pf = exp(t) * sin(pi * x) * cos(pi * y / 2) + 2 * pi * cos(pi * t) + DP
+#     return up, pp, dp, uf, pf
+
+def simple_mms_solution():
+    up = SympyVector(x**2 * y, x)
+    pp = 2*x + y**3
+    dp = SympyVector(x - y, x+y)
+
+    uf = SympyVector(2*y, x**4)
+    pf = 1 + 2*x
     return up, pp, dp, uf, pf
 
 
@@ -218,8 +335,63 @@ def print_all_RHSes(up, pp, dp, uf, pf):
     print "qp: \n", biot_RHS_qp(dp, pp, up)
 
 
-mms_sol = ambartsumyan_mms_solution()
-verify_interface_conditions(*mms_sol)
-print_all_RHSes(*mms_sol)
+def print_all_poisson_RHSes(up, pp, dp, uf, pf):
+    """Prints source terms and gradients of"""
+    print "\n=============================="
+    for func, name in zip(
+            [up, pp, dp, uf, pf],
+            ["up", "pp", "dp", "uf", "pf"],
+    ):
+        if isinstance(func, SympyVector):
+            source_term = func - vector_laplace(func)
+        else:
+            source_term = "\"{}\"".format(sympy.printing.ccode(func - laplace(func)))
+    
+        print "s_{}=Expression(\n{}, degree=5, t=0\n)".format(name, source_term)
 
-up, pp, dp, uf, pf = mms_sol
+    print "\n------------------------------\n\nGradient:"
+    for func, name in zip(
+            [up, pp, dp, uf, pf],
+            ["up", "pp", "dp", "uf", "pf"],
+            
+    ):
+        if isinstance(func, SympyVector): # TODO: matrix stuff happens here, spin it out into SympyMatrix
+            name_x, name_y = name + "_x: \n", name + "_y: \n"
+            u1, u2 = func.x, func.y
+            u1x, u1y, u2x, u2y = diff(u1, x), diff(u1, y), diff(u2, x), diff(u2, y)
+            grad_string = str(SympyMatrix([[u1x, u1y], [u2x, u2y]]))
+            # grad_string = "((\"{}\", \"{}\"),\n(\"{}\", \"{}\")),\n".format(
+            #     *map(str, (u1x, u2x, u1y, u2y))
+            # )
+        
+        else:
+            grad_string = str(grad(func))
+            
+        print "g_{}=Expression(\n{}, degree=3, t=0\n)".format(name, grad_string)
+    print "=============================="
+
+
+
+# mms_sol = ambartsumyan_mms_solution()
+mms_sol = simple_mms_solution()
+# verify_interface_conditions(*mms_sol)
+# print_all_RHSes(*mms_sol)
+
+# up, pp, dp, uf, pf = mms_sol
+
+
+def print_all_exact_solutions(up, pp, dp, uf, pf):
+    for name, func in zip(
+            ["up", "pp", "dp", "uf", "pf"],
+            [up, pp, dp, uf, pf]
+    ):
+        if isinstance(func, SympyVector):
+            s = str(func)
+        else:
+            s = "\"{}\"".format(sympy.printing.ccode(func))
+        print "{}_e=Expression(\n{}, degree=5, t=0\n)".format(
+            name, s
+        )
+print_all_poisson_RHSes(*mms_sol)
+print_all_exact_solutions(*mms_sol)
+

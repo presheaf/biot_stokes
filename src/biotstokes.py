@@ -4,7 +4,7 @@ from block import block_mat, block_vec, block_bc
 # from petsc4py import PETSc
 from dolfin import *
 from xii import *
-
+import itertools
 
 class CylinderBoxDomain3D(object):
     def __init__(self, hi, ho):
@@ -154,16 +154,10 @@ class BiotStokesProblem(object):
 
     def add_dirichlet_bc(self, problem_name, subdomain_id, value):
         bc_dict = self._dirichlet_bcs[problem_name]
-        # if subdomain_id in bc_dict:
-        #     del bc_dict[subdomain_id]
-
         bc_dict[subdomain_id] = value
 
     def add_neumann_bc(self, problem_name, subdomain_id, value):
         bc_dict = self._neumann_bcs[problem_name]
-        # if subdomain_id in bc_dict:
-        #     del bc_dict[subdomain_id]
-
         bc_dict[subdomain_id] = value
 
     def make_function_spaces(self):
@@ -294,35 +288,35 @@ class BiotStokesProblem(object):
             ]
         ]
 
-        a = [
-            [adp, bpvp, 0, 0, 0, npvp],
-            [bpvpt, -mpp, bpept, 0, 0, 0],
-            [0, bpep, aep + sepdp, -sepuf, 0, Constant(1 / dt) * npep],
-            [0, 0, -svfdp, af + Constant(dt) * svfuf, bf, nfvf],
-            [0, 0, 0, bft, 0, 0],
-            [npvpt, 0, Constant(1 / dt) * npept, nfvft, 0, 0],
+        # a = [
+        #     [adp, bpvp, 0, 0, 0, npvp],
+        #     [bpvpt, -mpp, bpept, 0, 0, 0],
+        #     [0, bpep, aep + sepdp, -sepuf, 0, Constant(1 / dt) * npep],
+        #     [0, 0, -svfdp, af + Constant(dt) * svfuf, bf, nfvf],
+        #     [0, 0, 0, bft, 0, 0],
+        #     [npvpt, 0, Constant(1 / dt) * npept, nfvft, 0, 0],
+        # ]
+
+        poisson_forms = [
+            (inner(testfunc, trialfunc) + inner(grad(testfunc), grad(trialfunc))) * dx
+            for testfunc, trialfunc in zip(
+                [vp, wp, ep, vf, wf, mu],
+                [up, pp, dp, uf, pf, lbd]
+            )
         ]
 
-        # poisson_forms = [
-        #     (inner(testfunc, trialfunc) + inner(grad(testfunc), grad(trialfunc))) * dx
-        #     for testfunc, trialfunc in zip(
-        #         [vp, wp, ep, vf, wf, mu],
-        #         [up, pp, dp, uf, pf, lbd]
-        #     )
-        # ]
+        a = [
+            [poisson_forms[i] if j == i else 0
+             for j in range(6)]
+            for i in range(6)
+        ]
 
-        # a = [
-        #     [poisson_forms[i] if j == i else 0
-        #      for j in range(6)]
-        #     for i in range(6)
-        # ]
-
-        # for i in range(6):
-        #     for j in range(6):
-        #         if i == j:
-        #             assert a[i][j] == poisson_forms[i]
-        #         else:
-        #             assert a[i][j] == 0
+        for i in range(6):
+            for j in range(6):
+                if i == j:
+                    assert a[i][j] == poisson_forms[i]
+                else:
+                    assert a[i][j] == 0
 
         # quick sanity check
         N_unknowns = 6
@@ -330,68 +324,93 @@ class BiotStokesProblem(object):
         for row in a:
             assert len(row) == N_unknowns
 
+        # def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
+        #     nf = FacetNormal(self.domain.stokes_domain)
+        #     np = FacetNormal(self.domain.porous_domain)
+
+        #     for prob_name in ["biot", "darcy", "stokes"]:  # update t in neumann bcs
+        #         for expr in neumann_bcs[prob_name].keys():
+        #             expr.t = t
+
+        #     biot_neumann_terms, darcy_neumann_terms, stokes_neumann_terms = (
+        #         sum(
+        #             [
+        #                 inner(
+        #                     testfunc, neumann_bcs[prob_name][subdomain]
+        #                 ) * measure(subdomain)
+        #                 for subdomain in neumann_bcs[prob_name]
+        #             ]
+        #         ) for prob_name, testfunc, measure in zip(
+        #             ["biot", "darcy", "stokes"],
+        #             [ep, vp, vf],
+        #             [dsDarcy, dsDarcy, dsStokes]
+        #         )
+        #     )
+
+        #     s_up, s_pp, s_dp, s_uf, s_pf = self.get_source_terms()
+        #     for expr in s_up, s_pp, s_dp, s_uf, s_pf:
+        #         expr.t = t
+
+        #     L_darcy = (
+        #         darcy_neumann_terms
+        #         + inner(vp, np) * Constant(0) * dsDarcy
+        #     )
+        #     L_interface = Constant(Cp) * inner(Tvp, n_Gamma_p) * dxGamma
+        #     bpp = (
+        #         Constant(s0 / dt) * pp_prev * wp * dxDarcy
+        #         + Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
+        #     )
+        #     L_biot = (
+        #         Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
+        #         + Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
+        #         + biot_neumann_terms
+        #     )
+        #     L_stokes = Constant(0) * inner(nf, vf) * \
+        #         dsStokes + stokes_neumann_terms
+
+        #     Tdp_prev = Trace(dp_prev, self.domain.interface)
+        #     L_mult = Constant(1 / dt) * inner(Tdp_prev,
+        #                                       n_Gamma_p) * mu * dxGamma
+
+        #     L = [
+        #         L_darcy + L_interface + inner(s_up, vp) * dxDarcy,
+        #         -bpp - inner(s_pp, wp) * dxDarcy,
+        #         L_biot + Constant(1/dt) * inner(s_dp, ep) * dxDarcy,
+        #         L_stokes + inner(s_uf, vf) * dxStokes,
+        #         -inner(s_pf, wf) * dxStokes,
+        #         L_mult
+
+        #     ]
+
+        #     assert len(L) == N_unknowns
+
+        #     return L
         def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
+            """Poisson"""
             nf = FacetNormal(self.domain.stokes_domain)
             np = FacetNormal(self.domain.porous_domain)
 
-            for prob_name in ["biot", "darcy", "stokes"]:  # update t in neumann bcs
-                for expr in neumann_bcs[prob_name].keys():
-                    expr.t = t
+            test_funcs = vp, wp, ep, vf, wf
+            normals = [np, np, np, nf, nf]
+            measures = [dsDarcy] * 3 + [dsStokes]*2
+            sources = self.get_source_terms()
+            gradients = self.get_gradients()
 
-            biot_neumann_terms, darcy_neumann_terms, stokes_neumann_terms = (
-                sum(
-                    [
-                        inner(
-                            testfunc, neumann_bcs[prob_name][subdomain]
-                        ) * measure(subdomain)
-                        for subdomain in neumann_bcs[prob_name]
-                    ]
-                ) for prob_name, testfunc, measure in zip(
-                    ["biot", "darcy", "stokes"],
-                    [ep, vp, vf],
-                    [dsDarcy, dsDarcy, dsStokes]
-                )
-            )
+            # append lambda terms
+            # sources = list(sources) + [Constant(0)]
+            # gradients = list(gradients) + [Constant(0)]
 
-            f_p, q_p, f_f, q_f = self.get_source_terms()
-            for expr in f_p, q_p, f_f, q_f:
+            
+            for expr in itertools.chain(sources, gradients):
                 expr.t = t
-
-            L_darcy = (
-                darcy_neumann_terms
-                + inner(vp, np) * Constant(0) * dsDarcy
-            )
-            L_interface = Constant(Cp) * inner(Tvp, n_Gamma_p) * dxGamma
-            bpp = (
-                Constant(s0 / dt) * pp_prev * wp * dxDarcy
-                + Constant(alpha / dt) * inner(div(dp_prev), wp) * dxDarcy
-            )
-            L_biot = (
-                Constant(1 / dt) * Constant(0) * inner(np, ep) * dsDarcy
-                + Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
-                + biot_neumann_terms
-            )
-            L_stokes = Constant(0) * inner(nf, vf) * \
-                dsStokes + stokes_neumann_terms
-
-            Tdp_prev = Trace(dp_prev, self.domain.interface)
-            L_mult = Constant(1 / dt) * inner(Tdp_prev,
-                                              n_Gamma_p) * mu * dxGamma
-
+            
             L = [
-                L_darcy + L_interface,
-                -bpp - inner(q_p, wp) * dxDarcy,
-                L_biot + Constant(1/dt) * inner(f_p, ep) * dxDarcy,
-                L_stokes + inner(f_f, vf) * dxStokes,
-                -inner(q_f, wf) * dxStokes,
-                L_mult
-
+                inner(v, s) * dx + inner(dot(g, n), v) * ds
+                for v, n, ds, s, g in zip(test_funcs, normals, measures, sources, gradients)
             ]
-
-            assert len(L) == N_unknowns
-
+            L.append(Constant(0) * mu * dxGamma)
             return L
-
+        
         # bcs
         up_bcs = [
             DirichletBC(
@@ -487,77 +506,215 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         for k in params:
             params[k] = 1
         params["dt"] = 1E-4
-        params["Cp"] = 0
+        params["Cp"] = 1
 
         super(AmbartsumyanMMSProblem, self).__init__(domain, params)
         up_e, _, dp_e, uf_e, _ = self.exact_solution()
 
-        for prob_name, exact_sol in zip(
-                ["darcy", "biot", "stokes"],
-                [up_e, dp_e, uf_e]
-        ):
-            self.add_dirichlet_bc(prob_name, 1, exact_sol)
+        # for prob_name, exact_sol in zip(
+        #         ["darcy", "biot", "stokes"],
+        #         [up_e, dp_e, uf_e]
+        # ):
+        #     self.add_dirichlet_bc(prob_name, 1, exact_sol)
 
-    def get_source_terms(self):
-        ff = Expression(
-            (
-                "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
-                "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
-            ), t=0, degree=2
-        )
+        # for prob_name, exact_sol in zip(
+        #         ["darcy", "biot", "stokes"],
+        #         [up_e, dp_e, uf_e]
+        # ):
+        #     self.add_dirichlet_bc(prob_name, 1, exact_sol)
 
-        qf = Expression("-2*pi*cos(pi*t)", t=0, degree=2)
-
-        fp = Expression(
-            (
-                "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
-                "-pi*exp(t)*sin(pi*x[0])*sin(pi*x[1]/2)/2"
-            ), t=0, degree=2
-        )
-
-        qp = Expression(
-            "exp(t)*sin(pi*x[0])*cos(pi*x[1]/2) + 5*pi*pi*exp(t)*sin(pi*x[0])*cos(pi*x[1]/2)/4 - 2*pi*cos(pi*t)", degree=2, t=0
-        )
-
-        return ff, qf, fp, qp
-
-    def exact_solution(self):
-        """Return exact solution as dolfin.Expressions"""
-        up_e = Expression(
-            (
-                "pi * exp(t) * -cos(pi * x[0]) * cos(pi * x[1] / 2)",
-                "pi * exp(t) * sin(pi * x[0]) * sin(pi * x[1] / 2) / 2"
-            ), t=0, degree=5
-        )
-        pp_e = Expression(
-            "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2)", t=0, degree=5)
-        dp_e = Expression(
-            (
-                "sin(pi * t) * (-3 * x[0] + cos(x[1]))",
-                "sin(pi * t) * (x[1] + 1)"
-            ), t=0, degree=5
-        )
-
-        uf_e = Expression(
-            (
-                "pi * cos(pi * t) * (-3 * x[0] + cos(x[1]))",
-                "pi * cos(pi * t) * (x[1] + 1)"
-            ), t=0, degree=5
-        )
-        pf_e = Expression(
-            "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2) + 2 * pi * cos(pi * t) + Cp",
-            t=0, degree=5, Cp=self.params["Cp"]
-        )
-
-        return up_e, pp_e, dp_e, uf_e, pf_e
-    
     def get_initial_conditions(self):
         exprs = self.exact_solution()
         for expr in exprs:
             expr.t = 0
         return exprs
-    ## original (not poisson)
-    # def _get_source_terms(self):
+
+    
+
+    def exact_solution(self):
+        """Return exact solution as dolfin.Expressions"""
+        # up_e = Expression(
+        #     (
+        #         "pi * exp(t) * -cos(pi * x[0]) * cos(pi * x[1] / 2)",
+        #         "pi * exp(t) * sin(pi * x[0]) * sin(pi * x[1] / 2) / 2"
+        #     ), t=0, degree=5
+        # )
+        # pp_e = Expression(
+        #     "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2)", t=0, degree=5)
+        # dp_e = Expression(
+        #     (
+        #         "sin(pi * t) * (-3 * x[0] + cos(x[1]))",
+        #         "sin(pi * t) * (x[1] + 1)"
+        #     ), t=0, degree=5
+        # )
+
+        # uf_e = Expression(
+        #     (
+        #         "pi * cos(pi * t) * (-3 * x[0] + cos(x[1]))",
+        #         "pi * cos(pi * t) * (x[1] + 1)"
+        #     ), t=0, degree=5
+        # )
+        # pf_e = Expression(
+        #     "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2) + 2 * pi * cos(pi * t) + Cp",
+        #     t=0, degree=5, Cp=self.params["Cp"]
+        # )
+
+        up_e=Expression(
+        (
+          "pow(x[0], 2)*x[1]",
+          "x[0]"
+        ), degree=5, t=0
+        )
+        pp_e=Expression(
+        "2*x[0] + pow(x[1], 3)", degree=5, t=0
+        )
+        dp_e=Expression(
+        (
+          "x[0] - x[1]",
+          "x[0] + x[1]"
+        ), degree=5, t=0
+        )
+        uf_e=Expression(
+        (
+          "2*x[1]",
+          "pow(x[0], 4)"
+        ), degree=5, t=0
+        )
+        pf_e=Expression(
+        "2*x[0] + 1", degree=5, t=0
+        )
+        return up_e, pp_e, dp_e, uf_e, pf_e
+
+    def get_source_terms(self):
+        """ For I - Poisson"""
+
+        # s_up = Expression( 
+        #     (
+        #         "-1.0/4.0*pi*(4 + 5*pow(pi, 2))*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
+        #         "(1.0/8.0)*pi*(4 + 5*pow(pi, 2))*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+        #     ), degree=5, t=0
+        # )
+        
+        # s_pp = Expression( 
+        #     "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
+        #     degree=5, t=0
+        # )
+        
+        # s_dp = Expression( 
+        #     (
+        #         "(-3*x[0] + 2*cos(x[1]))*sin(pi*t)",
+        #         "(x[1] + 1)*sin(pi*t)"
+        #     ), degree=5, t=0
+        # )
+        # s_uf = Expression( 
+        #     (
+        #         "pi*(-3*x[0] + 2*cos(x[1]))*cos(pi*t)",
+        #         "pi*(x[1] + 1)*cos(pi*t)"
+        #     ), degree=5, t=0
+        # )
+        # s_pf = Expression( 
+        #     "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1",
+        #     degree=5, t=0
+        # )
+        
+        s_up=Expression(
+        (
+          "x[1]*(pow(x[0], 2) - 2)",
+          "x[0]"
+        ), degree=5, t=0
+        )
+        s_pp=Expression(
+        "2*x[0] + pow(x[1], 3) - 6*x[1]", degree=5, t=0
+        )
+        s_dp=Expression(
+        (
+          "x[0] - x[1]",
+          "x[0] + x[1]"
+        ), degree=5, t=0
+        )
+        s_uf=Expression(
+        (
+          "2*x[1]",
+          "pow(x[0], 2)*(pow(x[0], 2) - 12)"
+        ), degree=5, t=0
+        )
+        s_pf=Expression(
+        "2*x[0] + 1", degree=5, t=0
+        )
+
+        return s_up, s_pp, s_dp, s_uf, s_pf
+
+    def get_gradients(self):
+        """ For I - Poisson"""
+
+        g_up=Expression(
+        (
+          ("2*x[0]*x[1]" ,  "pow(x[0], 2)"),
+          (     "1"      ,       "0"      )
+        ), degree=3, t=0
+        )
+        g_pp=Expression(
+        (
+          "2",
+          "3*pow(x[1], 2)"
+        ), degree=3, t=0
+        )
+        g_dp=Expression(
+        (
+          ("1" ,  "-1"),
+          ("1" ,  "1" )
+        ), degree=3, t=0
+        )
+        g_uf=Expression(
+        (
+          (      "0"       ,        "2"       ),
+          ("4*pow(x[0], 3)",        "0"       )
+        ), degree=3, t=0
+        )
+        g_pf=Expression(
+        (
+          "2",
+          "0"
+        ), degree=3, t=0
+        )
+
+        # g_up = Expression(
+        # (
+        #     (      "pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])"      ,  "(1.0/2.0)*pow(pi, 2)*exp(t)*sin((1.0/2.0)*pi*x[1])*cos(pi*x[0])"),
+        #     ("(1.0/2.0)*pow(pi, 2)*exp(t)*sin((1.0/2.0)*pi*x[1])*cos(pi*x[0])",  "(1.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])")
+        # ), degree=5, t=0)
+
+        # g_pp = Expression(
+        # (
+        #     "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
+        #     "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+        # ), degree=5, t=0)
+
+        # g_dp = Expression(
+        # (
+        #     (    "-3*sin(pi*t)"    ,  "-sin(x[1])*sin(pi*t)"),
+        #     (          "0"           ,       "sin(pi*t)"      )
+        # ), degree=5, t=0)
+
+        # g_uf = Expression(
+        # (
+        #     (    "-3*pi*cos(pi*t)"    ,  "-pi*sin(x[1])*cos(pi*t)"),
+        #     (             "0"             ,        "pi*cos(pi*t)"     )
+        # ), degree=5, t=0)
+
+        # g_pf = Expression(
+        # (
+        #     "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
+        #     "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+        # ), degree=5, t=0)        
+
+
+        
+        return g_up, g_pp, g_dp, g_uf, g_pf
+
+
+    #  # original (not poisson)
+    # def get_source_terms(self):
     #     ff = Expression(
     #         (
     #             "pi*(exp(t)*cos(pi*x[0])*cos(pi*x[1]/2) + cos(x[1])*cos(pi*t))",
@@ -578,43 +735,30 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
     #         "exp(t)*sin(pi*x[0])*cos(pi*x[1]/2) + 5*pi*pi*exp(t)*sin(pi*x[0])*cos(pi*x[1]/2)/4 - 2*pi*cos(pi*t)", degree=5, t=0
     #     )
 
-    #     return ff, qf, fp, qp
+    #     gp = Constant((0, 0))
 
-    # def exact_solution(self):
-    #     """Return exact solution as dolfin.Expressions"""
-    #     up_e = Expression(
-    #         (
-    #             "pi * exp(t) * -cos(pi * x[0]) * cos(pi * x[1] / 2)",
-    #             "pi * exp(t) * sin(pi * x[0]) * sin(pi * x[1] / 2) / 2"
-    #         ), t=0, degree=5
-    #     )
-    #     pp_e = Expression(
-    #         "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2)", t=0, degree=5)
-    #     dp_e = Expression(
-    #         (
-    #             "sin(pi * t) * (-3 * x[0] + cos(x[1]))",
-    #             "sin(pi * t) * (x[1] + 1)"
-    #         ), t=0, degree=5
-    #     )
+    #     return ff, qf, fp, qp, gp
+ 
 
-    #     uf_e = Expression(
-    #         (
-    #             "pi * cos(pi * t) * (-3 * x[0] + cos(x[1]))",
-    #             "pi * cos(pi * t) * (x[1] + 1)"
-    #         ), t=0, degree=5
-    #     )
-    #     pf_e = Expression(
-    #         "exp(t) * sin(pi * x[0]) * cos(pi * x[1] / 2) + 2 * pi * cos(pi * t) + Cp",
-    #         t=0, degree=5, Cp=self.params["Cp"]
-    #     )
-
-    #     return up_e, pp_e, dp_e, uf_e, pf_e
-
-    def compute_errors(self, funcs, t):
+    def compute_errors(self, funcs, t, norm_types=None):
         """Given a list of solution values, set the time in all the exact sol
         expressions and return a list of the errornorms."""
         # TODO: this
-        pass
+        if norm_types == None:
+            norm_types = ["l2"]*5
+
+        exprs = self.exact_solution()
+        for e in exprs:
+            e.t = t        
+
+        return [
+            errornorm(
+                expr, func,
+                norm_type=norm, degree_rise=3,
+                mesh=func.function_space().mesh())
+            for func, expr, norm in zip(funcs, exprs, norm_types)
+        ]
+
 
 
 def run_MMS():
@@ -631,19 +775,15 @@ def run_MMS():
         for l in (exprs, fns, norm_types):
             assert len(l) == N
 
-        for e in exprs:
-            e.t = t
-
-        for func, expr, fn, norm in zip(funcs, exprs, fns, norm_types):
+        errs = problem.compute_errors(list(funcs)[:5], t)
+        for fn, err in zip(fns, errs):
             with open(fn, "a") as f:
                 f.write(
                     "{:.4f}: {:.10f}\n".format(
-                        t, errornorm(
-                            expr, func, norm_type=norm, degree_rise=3, mesh=func.function_space().mesh())
+                        t, err
                     )
                 )
-
-    N = 20
+    N = 40
 
     problem = AmbartsumyanMMSProblem(N)
 
@@ -662,7 +802,10 @@ def run_MMS():
     # cleanup old files
     import itertools
     for fn in itertools.chain(solution_fns, err_fns):
-        os.remove(fn)
+        try:
+            os.remove(fn)
+        except OSError:
+            pass
 
     Nt = 3
     for i in range(Nt + 1):
@@ -729,3 +872,4 @@ doit()
 # make_cylinder_box_mesh("mesh.xml", 0.1, 0.1, 0.1, 0.3, 0.6)
 # u = Function(FunctionSpace(Mesh("mesh.xml"), "CG", 1))
 # File("vizz.pvd") << u
+ 

@@ -82,7 +82,7 @@
 We follow \cite{ambartsumyan} very very closely.
 
 \section{Domain}
-Our domain $\Omega$ is $d=2 \text{ or } 3$-dimensional, and partitioned into \stokes and \darcy, with $\interface = \stokes \cap \darcy$ being the $(d-1)$-dimensional interface. The boundary $\partial \Omega$ is partitioned into $\stokesbdy = \partial \Omega \cap \partial \stokes$ and $\darcybdy = \partial \Omega \cap \partial \darcy$. We assume each region is connected, reasonably smooth and all that.
+Our domain $\Omega$ is $d=2 \text{ or } 3$-dimensional, and partitioned into \stokes and \darcy, with $\interface = \stokes \cap \darcy$ being the $(d-1)$-dimensional interface. The boundary $\partial \Omega$ is bisected into $\stokesbdy = \partial \Omega \cap \partial \stokes$ and $\darcybdy = \partial \Omega \cap \partial \darcy$. We assume each region is connected, reasonably smooth and all that.
 
 \section{Unknowns}
 The unknowns of the system and the corresponding test functions are:
@@ -148,8 +148,9 @@ Stokes (applies in \stokes):
 \end{subequations}
 
 Darcy (applies in \darcy):
+(Here, we have a source term $g_p$ not in \cite{ambartsumyan}.)
 \begin{equation}
-    \up = - \frac {K} {\mu} \grad \pp     \label{eq:darcy}
+    \up = - \frac {K} {\mu} \grad \pp + g_p     \label{eq:darcy}
   \end{equation}
 
   
@@ -193,7 +194,7 @@ Having used a backward Euler discretization of the time derivative, \cite{ambart
     + &b_{\interface}\left (\vf, \vp, \disptest; \lambda \right ) + a_{BJS}\left (\uf, \frac{\disp} {\dt}; \vf, \disptest \right)\nonumber \\
                    = a_{BJS}\left (0, \frac{\disp^{n-1}} {\dt}; \vf, \disptest \right) + & \inner{\vp}{C_p\np}_{\interface} + (\sigmabf_f\nf, \vf)_{\stokesbdy}  \nonumber \\
     + & (\sigmabf_p\np, \disptest)_{\darcybdy} + (\pp\np, \vp)_{\darcybdy} + \inner{C_p\np}{\disptest}_{\interface}\nonumber \\
-    + & \inner{f_f}{\vf}_{\stokes} + \inner{f_p}{\disptest}_{\darcy}  \nonumber \\ \nonumber \\ %
+    + & \inner{f_f}{\vf}_{\stokes} + \inner{f_p}{\disptest}_{\darcy}  + \inner{g_p}{\vp}_{\darcy}\nonumber \\ \nonumber \\ %
     \inner{s_0 \frac {\pp} {\dt}}{\wp}_{\darcy}  &- \alpha b_p\left ( \frac{\disp} {\dt}, \wp \right ) - b_p(\up, \wp) - b_f(\uf, \wf) \label{eq:varform2}
     \\ = \inner{s_0 \frac {\pp^{n-1}} {\dt}}{\wp}_{\darcy} &- \alpha b_p\left ( \frac {\disp^{n-1}} {\dt}, \wp \right )  + \inner{q_f}{\wf}_{\stokes} + \inner{q_p}{\wp}_{\darcy}  \nonumber \\ \nonumber \\
     b_{\interface}\left (\uf, \up, \frac {\disp} {\dt}; \multtest \right ) &= b^{\disptest}_{\interface}\left (\frac {\disp^{n-1}} {\dt}; \multtest \right ) \label{eq:varform3}
@@ -334,7 +335,7 @@ Vectors
 \item[$L^{\sigmabf_p}$] \defeq \matrixform{\inner{\sigmabf_p \np}{\disptest}_{\darcybdy}}
 \item[$L^{\pp}$] \defeq \matrixform{\inner{\pp \np}{\vp}_{\darcybdy}}
 \item[$L^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
-\item[$F_f, F_p, Q_f, Q_p$] \defeq \matrixform{\text{source terms}}
+\item[$F_f, F_p, Q_f, Q_p, G_p$] \defeq \matrixform{\text{source terms}}
 \item[$\uf, \pf, \ldots$] \defeq vector of dofs
   
 \end{description}
@@ -369,7 +370,7 @@ Then the matrix of our system lookjs like
             \end{array}\right]
           = \newline
                       \left[\begin{array}{@{}c@{}}
-                L^{\pp} + L^{\Delta p} \\
+                L^{\pp} + L^{\Delta p} + G_p\\
                               b^{\pp} + Q_p \\
                 L^{\sigma_p} + F_p\\
                 L^{\sigma_f} + F_f\\
@@ -407,7 +408,7 @@ By scaling, this seems like it could be made symmetric. Specifically, dividing t
             \end{array}\right]
           = \newline
                       \left[\begin{array}{@{}c@{}}
-                L^{\pp} + L^{\Delta p} \\
+                L^{\pp} + L^{\Delta p}  + G_p\\
                               -b^{\pp} - Q_p\\
                               \frac 1 {\dt}L^{\sigma_p} + \frac 1 {\dt} F_p\\
                 L^{\sigma_f} + F_f\\
