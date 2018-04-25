@@ -25,14 +25,13 @@ def vector_grad(u):
     """Given a SympyVector, return its gradient as a SympyMatrix"""
     return SympyMatrix(
         [
-            [diff(u.x, x), diff(u.y, x)],
-            [diff(u.x, y), diff(u.y, y)],
+            [diff(u.x, x), diff(u.x, y)],
+            [diff(u.y, x), diff(u.y, y)],
         ]
     )
 
 def div(u):
-    u1, u2 = u.x, u.y
-    return diff(u1, x) + diff(u2, y)
+    return diff(u.x, x) + diff(u.y, y)
 
 
 def div_sym_grad(u):
@@ -40,7 +39,7 @@ def div_sym_grad(u):
     assert len(u) == 2
     return SympyVector(
         diff(u.x, x, x) + (diff(u.x, y, y) + diff(u.y, y, x)) / 2,
-        diff(u.y, x, x) + (diff(u.y, y, y) + diff(u.x, y, x)) / 2,
+        diff(u.y, y, y) + (diff(u.y, x, x) + diff(u.x, y, x)) / 2,
     )
 
 def inner(u, v):
@@ -82,7 +81,7 @@ class SympyVector(object):
         return "(\n  {}\n)".format(",\n  ".join(
             "\"{}\"".format(si)
             for si in strings
-        ))
+        )).replace(".0L", "").replace("M_PI", "pi")
 
     def __len__(self):
         return len(self._l)
@@ -163,7 +162,7 @@ class SympyMatrix(object):
         return "(\n  {}\n)".format(",\n  ".join(
             "{}".format(ri)
             for ri in rows
-        ))
+        )).replace(".0L", "").replace("M_PI", "pi")
 
     def __len__(self):          # dimension, not number of elts
         if len(self._l) == 4:
@@ -204,9 +203,9 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
 
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
-# DP=0
 
-
+alpha_BJS = 0
+DP= 0
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
 ## stokes/darcy/biot
@@ -215,10 +214,6 @@ def norm_sym_grad(u, n):
     Du_x = SympyVector(diff(u.x, x), (diff(u.x, y) + diff(u.y, x)) / 2)
     Du_y = SympyVector((diff(u.x, y) + diff(u.y, x)) / 2, diff(u.y, y))
     return SympyVector(inner(Du_x, n), inner(Du_y, n))
-
-
-def verify_BJS(up, pp, dp, uf, pf):
-    assert False
 
 
 def stokes_RHS_ff(uf, pf):
@@ -234,7 +229,7 @@ def biot_RHS_fp(dp, pp):
 
 
 def biot_RHS_gp(up, pp):        # not in paper, but diff. between up and -grad(pp)
-    return grad(pp) + mu_p / K * up
+    return K / mu_p * grad(pp) + up
 
 
 def biot_RHS_qp(dp, pp, up):
@@ -258,15 +253,15 @@ def biot_RHS_qp(dp, pp, up):
 #     return -laplace(pp)
 
 
-# def ambartsumyan_mms_solution():
-#     up = pi * exp(t) * SympyVector(-cos(pi * x) * cos(pi * y / 2),
-#                                    sin(pi * x) * sin(pi * y / 2) / 2)
-#     pp = exp(t) * sin(pi * x) * cos(pi * y / 2)
-#     dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+def ambartsumyan_mms_solution():
+    up = pi * exp(t) * SympyVector(-cos(pi * x) * cos(pi * y / 2),
+                                   sin(pi * x) * sin(pi * y / 2) / 2)
+    pp = exp(t) * sin(pi * x) * cos(pi * y / 2)
+    dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
 
-#     uf = pi * cos(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
-#     pf = exp(t) * sin(pi * x) * cos(pi * y / 2) + 2 * pi * cos(pi * t) + DP
-#     return up, pp, dp, uf, pf
+    uf = pi * cos(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+    pf = exp(t) * sin(pi * x) * cos(pi * y / 2) + 2 * pi * cos(pi * t) + DP
+    return up, pp, dp, uf, pf
 
 def simple_mms_solution():
     up = SympyVector(x**2 * y, x)
@@ -274,7 +269,7 @@ def simple_mms_solution():
     dp = SympyVector(x - y, x+y)
 
     uf = SympyVector(2*y, x**4)
-    pf = 1 + 2*x
+    pf = -1 + 2*x
     return up, pp, dp, uf, pf
 
 
@@ -295,10 +290,13 @@ def verify_interface_conditions(up, pp, dp, uf, pf):
 
     # sigma_f n_f * nf
     normstress_f = 2 * mu_f * norm_sym_grad(uf, nf) - pf * nf
-    normstress_p = lbd_p * div(dp) * np + 2 * mu_p * \
-        norm_sym_grad(dp, np) - alpha * pp * np
+    normstress_p = (
+        lbd_p * div(dp) * np +
+        2 * mu_p * norm_sym_grad(dp, np)
+        - alpha * pp * np
+    )
     ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
-
+    
     # 2.6: mass conservation (subs to be on interface y=0)
     mass_conservation = restrict(inner(uf, nf) + inner(ddpdt + up, np))
     assert mass_conservation == 0
@@ -320,62 +318,33 @@ def verify_interface_conditions(up, pp, dp, uf, pf):
 
 
 def print_all_RHSes(up, pp, dp, uf, pf):
-    # verify that up = -mu_p/K * grad(pp)
-    # this doesn't really belong here, but if it's not i guess a RHS term would be needed so kinda?
-    gp = biot_RHS_gp(up, pp)
-    for component in (gp.x, gp.y):
-        assert component.subs([(mu_p, -2), (K, -2)]).simplify() == 0
 
-    print "Stokes:"
-    print "ff: \n", stokes_RHS_ff(uf, pf)
-    print "qf: \n", stokes_RHS_qf(uf)
-
-    print "\nBiot:"
-    print "fp: \n", biot_RHS_fp(uf, pf)
-    print "qp: \n", biot_RHS_qp(dp, pp, up)
-
-
-def print_all_poisson_RHSes(up, pp, dp, uf, pf):
-    """Prints source terms and gradients of"""
-    print "\n=============================="
-    for func, name in zip(
-            [up, pp, dp, uf, pf],
-            ["up", "pp", "dp", "uf", "pf"],
-    ):
-        if isinstance(func, SympyVector):
-            source_term = func - vector_laplace(func)
-        else:
-            source_term = "\"{}\"".format(sympy.printing.ccode(func - laplace(func)))
-    
-        print "s_{}=Expression(\n{}, degree=5, t=0\n)".format(name, source_term)
-
-    print "\n------------------------------\n\nGradient:"
-    for func, name in zip(
-            [up, pp, dp, uf, pf],
-            ["up", "pp", "dp", "uf", "pf"],
-            
-    ):
-        if isinstance(func, SympyVector): # TODO: matrix stuff happens here, spin it out into SympyMatrix
-            name_x, name_y = name + "_x: \n", name + "_y: \n"
-            u1, u2 = func.x, func.y
-            u1x, u1y, u2x, u2y = diff(u1, x), diff(u1, y), diff(u2, x), diff(u2, y)
-            grad_string = str(SympyMatrix([[u1x, u1y], [u2x, u2y]]))
-            # grad_string = "((\"{}\", \"{}\"),\n(\"{}\", \"{}\")),\n".format(
-            #     *map(str, (u1x, u2x, u1y, u2y))
-            # )
+    def exprify(u):
         
+        if isinstance(u, SympyVector):
+            s = "Expression(\n{}, degree=5, t=0\n)".format(u)
         else:
-            grad_string = str(grad(func))
-            
-        print "g_{}=Expression(\n{}, degree=3, t=0\n)".format(name, grad_string)
-    print "=============================="
+            s= "Expression(\n\"{}\", degree=5, t=0\n)".format(
+                sympy.printing.ccode(u)
+            )
 
+        return s.replace(".0L", "").replace("M_PI", "pi")
+        
+    
+    print 
+    print "s_up =", exprify(biot_RHS_gp(up, pp))
+    print "s_pp =", exprify(biot_RHS_qp(dp, pp, up))
+    print "s_dp = ", exprify(biot_RHS_fp(dp, pp))
+    print "s_uf =", exprify(stokes_RHS_ff(uf, pf))
+    print "s_pf = ", exprify(stokes_RHS_qf(uf))
 
+    
+    
 
-# mms_sol = ambartsumyan_mms_solution()
-mms_sol = simple_mms_solution()
-# verify_interface_conditions(*mms_sol)
-# print_all_RHSes(*mms_sol)
+mms_sol = ambartsumyan_mms_solution()
+# mms_sol = simple_mms_solution()
+verify_interface_conditions(*mms_sol)
+print_all_RHSes(*mms_sol)
 
 # up, pp, dp, uf, pf = mms_sol
 
@@ -391,7 +360,28 @@ def print_all_exact_solutions(up, pp, dp, uf, pf):
             s = "\"{}\"".format(sympy.printing.ccode(func))
         print "{}_e=Expression(\n{}, degree=5, t=0\n)".format(
             name, s
-        )
-print_all_poisson_RHSes(*mms_sol)
-print_all_exact_solutions(*mms_sol)
+        ).replace(".0L", ".0").replace("M_PI", "pi")
 
+def print_all_gradients(up, pp, dp, uf, pf):
+    print "\n------------------------------\n\nGradient:"
+    for func, name in zip(
+            [up, pp, dp, uf, pf],
+            ["up", "pp", "dp", "uf", "pf"],
+            
+    ):
+        if isinstance(func, SympyVector): # TODO: matrix stuff happens here, spin it out into SympyMatrix
+            name_x, name_y = name + "_x: \n", name + "_y: \n"
+            u1, u2 = func.x, func.y
+            u1x, u1y, u2x, u2y = diff(u1, x), diff(u1, y), diff(u2, x), diff(u2, y)
+            grad_string = str(SympyMatrix([[u1x, u1y], [u2x, u2y]]))
+            # grad_string = "((\"{}\", \"{}\"),\n(\"{}\", \"{}\")),\n".format(
+            #     *map(str, (u1x, u2x, u1y, u2y))
+            # )
+        else:
+            grad_string = str(grad(func))
+
+        print "g_{}=Expression(\n{}, degree=3, t=0\n)".format(name, grad_string)
+
+            
+print_all_exact_solutions(*mms_sol)
+# print_all_gradients(*mms_sol)

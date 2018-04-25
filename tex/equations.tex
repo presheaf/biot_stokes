@@ -172,7 +172,7 @@ Balance of stress :
   -(\sigmabf_f \nf) \cdot \nf = \pp + C_p = \lambda  \label{eq:stressbalance1_mult}
 \end{equation}
 \begin{equation}
-  \sigmabf_f \nf + \sigmabf_p \np = C_p \np \label{eq:stressbalance2}
+  \sigmabf_f \nf + \sigmabf_p \np = C_p \nf \label{eq:stressbalance2}
 \end{equation}
 BJS condition:
 \begin{equation}
@@ -246,7 +246,7 @@ Next, once we add all these equations together, we will have to handle the sum o
 We start with $\intI \pp \vp \cdot \np$. By \eqref{eq:stressbalance1_mult}, $\pp = \mult - C_p$ on \interface, so
 $$I_{\vp} = \intI \pp \vp \cdot \np = \intI \mult \vp \cdot \np - \intI C_p \vp \cdot \np$$
 
-The second term can then go live on the right hand side. Next, we treat the other two interface terms. By \eqref{eq:stressbalance2}, $\sigmabf_p \np = - \sigmabf_f \nf + C_p \np$, so we have that $$I_{\vf} + I_{\disptest} = \intI (\vf - \disptest) \cdot \sigmabf_f \nf + \intI C_p \disptest \cdot  \np$$
+The second term can then go live on the right hand side. Next, we treat the other two interface terms. By \eqref{eq:stressbalance2}, $\sigmabf_p \np = - \sigmabf_f \nf + C_p \nf$, so we have that $$I_{\vf} + I_{\disptest} = \intI (\vf - \disptest) \cdot \sigmabf_f \nf + \intI C_p \disptest \cdot  \nf$$
 Again, the second term can go on the right hand side. Next, note that the BJS condition \eqref{eq:BJS} gives us information on the tangential component of $\sigmabf_f \nf$, while \eqref{eq:stressbalance1_mult} gives us information on the normal component. As $\nf, \taubf_1, \taubf_2$ form an orthonormal system, we have that\footnote{This is just use of the fact when a vector $\mathbf{v}$ is written in a basis $\mathbf{e}_i$, the coefficient of $\mathbf{e}_i$    }
 \begin{align*}
   \vf - \disptest = \: &\nf ((\vf - \disptest) \cdot \nf) + \sum_j \taubf_j ((\vf - \disptest) \cdot \taubf_j) \\
@@ -334,7 +334,8 @@ Vectors
 \item[$L^{\sigmabf_f}$] \defeq \matrixform{\inner{\sigmabf_f \nf}{\vf}_{\stokesbdy}}
 \item[$L^{\sigmabf_p}$] \defeq \matrixform{\inner{\sigmabf_p \np}{\disptest}_{\darcybdy}}
 \item[$L^{\pp}$] \defeq \matrixform{\inner{\pp \np}{\vp}_{\darcybdy}}
-\item[$L^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
+\item[$L_{\vp}^{\Delta p}$] \defeq \matrixform{\inner{C_p\np}{\vp}_{\interface}}
+\item[$L_{\disptest}^{\Delta p}$] \defeq \matrixform{\inner{C_p\nf}{\disptest}_{\interface}}
 \item[$F_f, F_p, Q_f, Q_p, G_p$] \defeq \matrixform{\text{source terms}}
 \item[$\uf, \pf, \ldots$] \defeq vector of dofs
   
@@ -345,7 +346,7 @@ Vectors
 Note that although some of these vectors involve the unknowns, but appear on the RHS, they will be known because of BCs.
 
 
-Then the matrix of our system lookjs like
+Then the matrix of our system looks like
 \[ \renewcommand{\arraystretch}{1.8}
   \left[\begin{array}{@{}ccc|cc|c@{}}
           % \up & \pp & \disp & \uf & \pf & \mult \\
@@ -370,9 +371,9 @@ Then the matrix of our system lookjs like
             \end{array}\right]
           = \newline
                       \left[\begin{array}{@{}c@{}}
-                L^{\pp} + L^{\Delta p} + G_p\\
-                              b^{\pp} + Q_p \\
-                L^{\sigma_p} + F_p\\
+                L^{\pp} + L_{\vp}^{\Delta p} + G_p\\
+                              b^{\pp}  + Q_p \\
+                              L^{\sigma_p} + L_{\disptest}^{\Delta p} + F_p\\
                 L^{\sigma_f} + F_f\\
                 Q_f \\
                 \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
@@ -410,7 +411,7 @@ By scaling, this seems like it could be made symmetric. Specifically, dividing t
                       \left[\begin{array}{@{}c@{}}
                 L^{\pp} + L^{\Delta p}  + G_p\\
                               -b^{\pp} - Q_p\\
-                              \frac 1 {\dt}L^{\sigma_p} + \frac 1 {\dt} F_p\\
+                              \frac 1 {\dt} \left ( L^{\sigma_p} + L_{\disptest}^{\Delta p} + F_p \right )\\
                 L^{\sigma_f} + F_f\\
                 - Q_f\\
                 \frac 1 {\dt} (N^p_{\disptest, \mult})^T \disp^{n-1} \\
