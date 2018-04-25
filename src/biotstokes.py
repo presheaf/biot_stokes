@@ -5,6 +5,9 @@ from block import block_mat, block_vec, block_bc
 from dolfin import *
 from xii import *
 import itertools
+import hsmg
+
+
 
 # class CylinderBoxDomain3D(object):
 #     def __init__(self, hi, ho):
@@ -127,9 +130,8 @@ class BiotStokesProblem(object):
             "lbd_f": 1.,
             "lbd_p": 1.,
             "K": 1.,
-
-            "alpha_BJS": 0.,
-            "Cp": 0.
+            "alpha_BJS": 1.,
+            "Cp": 1.
         }
 
     def __init__(self, domain, param_dict):
@@ -137,6 +139,7 @@ class BiotStokesProblem(object):
         d.update(param_dict)
         self.params = d
 
+        
         self.domain = domain
 
         self._dirichlet_bcs = {
@@ -162,7 +165,7 @@ class BiotStokesProblem(object):
 
     def make_function_spaces(self):
         # biot
-        Vp = FunctionSpace(self.domain.porous_domain, "RT", 2) 
+        Vp = FunctionSpace(self.domain.porous_domain, "RT", 2)
         Qp = FunctionSpace(self.domain.porous_domain, "DG", 1)
         U = VectorFunctionSpace(self.domain.porous_domain, "CG", 2)
 
@@ -171,7 +174,7 @@ class BiotStokesProblem(object):
         Qf = FunctionSpace(self.domain.stokes_domain, "CG", 1)
 
         # lagrange multiplier
-        X = FunctionSpace(self.domain.interface, "DG", 1)
+        X = FunctionSpace(self.domain.interface, "DG", 0)
 
         self.W = [Vp, Qp, U, Vf, Qf, X]
         print("dofs: {}".format(sum([sp.dim() for sp in self.W])))
@@ -237,13 +240,14 @@ class BiotStokesProblem(object):
             Function, self.W)
 
         # thank you, Miro!
-        Tup, Tdp, Tuf = map(lambda x: Trace(x, self.domain.interface),
-                            [up, dp, uf]
+        Tdp, Tuf = map(lambda x: Trace(x, self.domain.interface),
+                            [dp, uf]
                             )
 
-        Tvp, Tep, Tvf = map(lambda x: Trace(x, self.domain.interface),
-                            [vp, ep, vf]
+        Tep, Tvf = map(lambda x: Trace(x, self.domain.interface),
+                            [ep, vf]
                             )
+
 
         # last argument is a point in the interior of the
         #  domain the normal should point outwards from
@@ -254,7 +258,11 @@ class BiotStokesProblem(object):
         
         n_Gamma_p = -n_Gamma_f
 
-        # # build a bunch of matrices
+        Tup = Trace(up, self.domain.interface, restriction="-", normal=n_Gamma_f)
+        Tvp = Trace(vp, self.domain.interface, restriction="-", normal=n_Gamma_f)
+
+
+        # a bunch of forms
         af = Constant(2 * mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dx
         
         mpp = pp * wp * dx
@@ -303,26 +311,33 @@ class BiotStokesProblem(object):
             [npvpt, 0, Constant(1 / dt) * npept, nfvft, 0, 0],
         ]
 
-        # a = [
-        #     [adp, 0, 0, 0, 0, npvp],
-        #     [0, -mpp, bpept, 0, 0, 0],
-        #     [0, bpep, aep + sepdp, -sepuf, 0, Constant(1 / dt) * npep],
-        #     [0, 0, 0, af +  dt*svfuf, bf, nfvf],
-        #     [0, 0, 0, bft, 0, 0],
-        #     [npvpt, 0, Constant(1/dt) * npept, nfvft, 0, m_mu],
-        # ]
+        # block diagonal preconditioner
+        P_up = inner(up, vp) * dxDarcy + inner(div(up), div(vp)) * dxDarcy # Hdiv
+        P_pp = inner(pp, wp) * dxDarcy # L2
+        P_dp = (inner(dp, ep) + inner(grad(dp), grad(ep))) * dxDarcy # H1
+        P_uf = (inner(uf, vf) + inner(grad(uf), grad(vf))) * dxStokes # H1
+        P_pf = (inner(pf, wf)) * dxStokes # H1
+        # P_lbd = (inner(mu, lbd)) * dxGamma # H1
+        P_lbd = hsmg.HsNorm(self.W[-1], s=0.5)
+        P_lbd * Function(self.W[-1]).vector() # enforces lazy computation
 
+        P_lbd = P_lbd.matrix
+        
+        P_up, P_pp, P_dp, P_uf, P_pf = map(
+            lambda form: ii_convert(ii_assemble(form)),
+            [P_up, P_pp, P_dp, P_uf, P_pf]
+        )
+        self.P = ii_convert(
+            block_diag_mat([P_up, P_pp, P_dp, P_uf, P_pf, P_lbd])
+        )
+        
+        
+        
         # quick sanity check
         N_unknowns = 6
         assert len(a) == N_unknowns
         for row in a:
             assert len(row) == N_unknowns
-
-        # a = [
-        #     [adp, bpvp, 0],
-        #     [bpvpt, -mpp, bpept],
-        #     [0, bpep, aep],
-        # ]
 
 
         def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
@@ -359,17 +374,17 @@ class BiotStokesProblem(object):
 
             L_darcy = (
                 inner(vp, np) * Constant(0) * dsDarcy
-                # + darcy_neumann_terms
+                + darcy_neumann_terms
                 
             )
 
             L_biot = (
                 Constant(0) * inner(np, ep) * dsDarcy
-                # + biot_neumann_terms
+                + biot_neumann_terms
             )
             L_stokes = (
                 Constant(0) * inner(nf, vf) * dsStokes
-                # + stokes_neumann_terms
+                + stokes_neumann_terms
             )
 
             bpp = (
@@ -402,13 +417,17 @@ class BiotStokesProblem(object):
             
 
             L = [
-                L_darcy+ L_Cp_vp + S_vp,
+                L_darcy + L_Cp_vp + S_vp,
                 bpp + S_wp,
-                Constant(1/dt) * (
-                    L_biot + L_Cp_ep
-                    + L_BJS_ep + S_ep
+                (
+                    L_biot + L_Cp_ep + S_ep
+                    + L_BJS_ep # this should be here
                 ),
-                L_stokes + L_BJS_vf + S_vf,
+                (
+                    L_stokes + S_vf + 
+                    L_BJS_vf # this should be here
+                )
+                ,
                 S_wf,
                 L_mult
 
@@ -417,33 +436,7 @@ class BiotStokesProblem(object):
             assert len(L) == N_unknowns
 
             return L
-        # def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
-        #     """Poisson"""
-        #     nf = FacetNormal(self.domain.stokes_domain)
-        #     np = FacetNormal(self.domain.porous_domain)
 
-        #     test_funcs = vp, wp, ep, vf, wf
-        #     normals = [np, np, np, nf, nf]
-        #     measures = [dsDarcy] * 3 + [dsStokes]*2
-        #     sources = self.get_source_terms()
-        #     gradients = self.get_gradients()
-
-        #     # append lambda terms
-        #     # sources = list(sources) + [Constant(0)]
-        #     # gradients = list(gradients) + [Constant(0)]
-
-            
-        #     for expr in itertools.chain(sources, gradients):
-        #         expr.t = t
-            
-        #     L = [
-        #         inner(v, s) * dx + inner(dot(g, n), v) * ds
-        #         for v, n, ds, s, g in zip(test_funcs, normals, measures, sources, gradients)
-        #     ]
-        #     L.append(Constant(0) * mu * dxGamma)
-        #     return L
-        
-        # bcs
         up_bcs = [
             DirichletBC(
                 self.W[0], self._dirichlet_bcs["darcy"][subdomain_num],
@@ -500,7 +493,7 @@ class BiotStokesProblem(object):
         
         w = ii_Function(self.W)
 
-        solver = LUSolver('umfpack')  # this should be umfpack
+        solver = LUSolver('default')  # this should be umfpack
         solver.set_operator(AAm)
         solver.parameters['reuse_factorization'] = True
 
@@ -540,7 +533,10 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         params = BiotStokesProblem.default_params()
         for k in params:
             params[k] = 1
-        params["dt"] = 1
+        params["dt"] = 1E-6     # note: if you change this, mms_rhs will discretize wrongly
+
+        params["alpha_BJS"] = 1
+        params["Cp"] = 1
 
 
         super(AmbartsumyanMMSProblem, self).__init__(domain, params)
@@ -551,6 +547,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
                 [up_e, dp_e, uf_e]
         ):
             self.add_dirichlet_bc(prob_name, 1, exact_sol)
+
 
     def get_initial_conditions(self):
         exprs = self.exact_solution()
@@ -582,38 +579,89 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         ), degree=5, t=0
         )
         pf_e=Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t)", degree=5, t=0
+        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=5, t=0
         )
+
+        # up_e=Expression(
+        # (
+        #   "-pi*exp(t)*cos(pi*x[0])*cos((1/2)*pi*x[1])",
+        #   "(1/2)*pi*exp(t)*sin(pi*x[0])*sin((1/2)*pi*x[1])"
+        # ), degree=5, t=0
+        # )
+        # pp_e=Expression(
+        # "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
+        # )
+        # dp_e=Expression(
+        # (
+        #   "(-3*x[0] + cos(x[1]))*sin(pi*t)",
+        #   "(x[1] + 1)*sin(pi*t)"
+        # ), degree=5, t=0
+        # )
+        # uf_e=Expression(
+        # (
+        #   "pi*(-3*x[0] + cos(x[1]))*cos(pi*t)",
+        #   "pi*(x[1] + 1)*cos(pi*t)"
+        # ), degree=5, t=0
+        # )
+        # pf_e=Expression(
+        # "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t)", degree=5, t=0
+        # )
 
         return up_e, pp_e, dp_e, uf_e, pf_e
 
     def get_source_terms(self):
-        s_up = Expression(
+        s_vp = Expression(
         (
           "0",
           "0"
         ), degree=5, t=0
         )
-        s_pp = Expression(
-        "exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) + (5/4)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) - 2*pi*cos(pi*t)", degree=5, t=0
+        s_wp = Expression(
+        "0.999999499984305*exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) + (5/4)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) - 2000000.0*sin(pi*t) + 2000000.0*sin(pi*(t - 1.0e-6))", degree=5, t=0
         )
-        s_dp =  Expression(
+        s_ep =  Expression(
         (
           "pi*exp(t)*cos(pi*x[0])*cos((1/2)*pi*x[1]) + sin(pi*t)*cos(x[1])",
           "-1/2*pi*exp(t)*sin(pi*x[0])*sin((1/2)*pi*x[1])"
         ), degree=5, t=0
         )
-        s_uf = Expression(
+        s_vf = Expression(
         (
           "pi*(exp(t)*cos(pi*x[0])*cos((1/2)*pi*x[1]) + cos(x[1])*cos(pi*t))",
           "-1/2*pi*exp(t)*sin(pi*x[0])*sin((1/2)*pi*x[1])"
         ), degree=5, t=0
         )
-        s_pf =  Expression(
+        s_wf =  Expression(
         "-2*pi*cos(pi*t)", degree=5, t=0
         )
 
-        return s_up, s_pp, s_dp, s_uf, s_pf
+
+        # s_vp = Expression(
+        # (
+        #   "0",
+        #   "0"
+        # ), degree=5, t=0
+        # )
+        # s_wp = Expression(
+        # "0.995016625083189*exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) + (5/4)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1/2)*pi*x[1]) - 200.0*sin(pi*t) + 200.0*sin(pi*(t - 0.01))", degree=5, t=0
+        # )
+        # s_ep =  Expression(
+        # (
+        #   "pi*exp(t)*cos(pi*x[0])*cos((1/2)*pi*x[1]) + sin(pi*t)*cos(x[1])",
+        #   "-1/2*pi*exp(t)*sin(pi*x[0])*sin((1/2)*pi*x[1])"
+        # ), degree=5, t=0
+        # )
+        # s_vf = Expression(
+        # (
+        #   "pi*(exp(t)*cos(pi*x[0])*cos((1/2)*pi*x[1]) + cos(x[1])*cos(pi*t))",
+        #   "-1/2*pi*exp(t)*sin(pi*x[0])*sin((1/2)*pi*x[1])"
+        # ), degree=5, t=0
+        # )
+        # s_wf =  Expression(
+        # "-2*pi*cos(pi*t)", degree=5, t=0
+        # )
+
+        return s_vp, s_wp, s_ep, s_vf, s_wf
 
     # def exact_solution(self):
     #     up_e=Expression(
@@ -691,14 +739,22 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             for func, expr, norm in zip(funcs, exprs, norm_types)
         ]
 
+    def save_exact_solution_to_file(self, t, fs):
+        exprs = self.exact_solution()
+        W = self.W
+
+        for i, (expr, function_space, f) in enumerate(zip(exprs, list(W)[:-1], fs)):
+            expr.t = t
+            u = interpolate(expr, function_space)
+            u.rename("u", str(i))
+            f << u
+            
 
 
 
-def save_to_file(things, fns=None):
-    if fns is None:
-        fns = ["tmp{}.pvd".format(i) for i, _ in enumerate(things)]
-    for thing, fn in zip(things, fns):
-        f = dolfin.File(fn)
+def save_to_file(things, fs):
+    for i, (thing, f) in enumerate(zip(things, fs)):
+        thing.rename("u", str(i))
         f << thing
 
 def save_errors(t, funcs, exprs, fns, norm_types):
@@ -715,93 +771,122 @@ def save_errors(t, funcs, exprs, fns, norm_types):
                     t, err
                 )
             )
-N = 80
+N = 4
 
 problem = AmbartsumyanMMSProblem(N)
 
 solution = problem.get_solver()
-names = ["up", "pp", "dp", "uf", "pf", "lbd"]
-global funcs
-result_dir = "mms_results"
+solution.next()
 
-def in_dir(fn):
-    return os.path.join(result_dir, fn)
+P4, A4 = problem.P.array(), problem.matrix.array()
 
-solution_fns = map(in_dir, ["up.pvd", "pp.pvd",
-                            "dp.pvd", "uf.pvd", "pf.pvd", "lbd.pvd"])
-err_fns = map(in_dir, ["up_e.txt", "pp_e.txt",
-                       "dp_e.txt", "uf_e.txt", "pf_e.txt"])
-# cleanup old files
-import itertools
-for fn in itertools.chain(solution_fns, err_fns):
-    try:
-        os.remove(fn)
-    except OSError:
-        pass
+N = 8
 
-Nt = 1
-for i in range(Nt + 1):
-    t, funcs = solution.next()
-    print "\r Done with timestep {:>3d} of {}".format(i, Nt),
-    save_to_file(funcs, solution_fns)
-    save_errors(t, list(funcs)[:5], problem.exact_solution(),
-                err_fns, ["l2"] * 5)
+problem = AmbartsumyanMMSProblem(N)
 
-print ""
-for func, expr, name in zip(list(funcs)[:5], problem.exact_solution(), names[:5]):
-    # func2 = Function(func.function_space())
-    # func2.assign(expr)
-    s = (
-        "err_{}: {:.10f}\n".format(
-            name, errornorm(
-                expr, func,
-                norm_type="l2", degree_rise=3,
-                mesh=func.function_space().mesh()
-            )
-        )
-    )
-    print s
+solution = problem.get_solver()
+solution.next()
 
+P8, A8 = problem.P.array(), problem.matrix.array()
 
-# def make_cylinder_box_mesh(mesh_fn, h_ic, h_oc, h_b, Ri, Ro):
-#     import subprocess
-#     import os
+import scipy
+
+eigs_4 = scipy.linalg.eigh(A4, P4, eigvals_only=True)
+eigs_8 = scipy.linalg.eigh(A8, P8, eigvals_only=True)
+
+eigs_4 = sorted(map(abs, eigs_4))
+eigs_8 = sorted(map(abs, eigs_8))
+
+print "N=4: min = {:.6f}, max = {:.6f}".format(min(eigs_4), max(eigs_4))
+print "N=8: min = {:.6f}, max = {:.6f}".format(min(eigs_8), max(eigs_8))
+
+# names = ["up", "pp", "dp", "uf", "pf", "lbd"]
+# # global funcs
+# result_dir = "mms_results"
+
+# def in_dir(fn):
+#     return os.path.join(result_dir, fn)
+
+# solution_fs = map(File, map(in_dir, ["up.pvd", "pp.pvd",
+#                                      "dp.pvd", "uf.pvd", "pf.pvd", "lbd.pvd"]))
+# exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
+#                                    "dp_e.pvd", "uf_e.pvd", "pf_e.pvd"]))
+# err_fns = map(in_dir, ["up_e.txt", "pp_e.txt",
+#                        "dp_e.txt", "uf_e.txt", "pf_e.txt"])
+# # # cleanup old files
+# # import itertools
+# for fn in err_fns:
 #     try:
-#         os.remove(mesh_fn)
-#     except:
+#         os.remove(fn)
+#     except OSError:
 #         pass
 
-#     with open("cylinderbox.geo", "r") as f:
-#         text = "".join(f.readlines())
+# Nt = 5
+# for i in range(Nt + 1):
+#     t, funcs = solution.next()
+#     print "\r Done with timestep {:>3d} of {}".format(i, Nt),
+#     save_to_file(funcs, solution_fs)
+#     problem.save_exact_solution_to_file(t, exact_fs)
+    
+#     # save_to_file(exprs, exact_solution_fns)
+#     save_errors(t, list(funcs)[:5], problem.exact_solution(),
+#                 err_fns, ["l2"] * 5)
 
-#     text = text.replace("__H_IC__", str(h_ic), 1)
-#     text = text.replace("__H_OC__", str(h_oc), 1)
-#     text = text.replace("__H_B__", str(h_b), 1)
-#     text = text.replace("__Ri__", str(Ri), 1)
-#     text = text.replace("__Ro__", str(Ro), 1)
-
-#     tmp_geo_fn = "temp_geo.geo"
-#     tmp_msh_fn = "temp_geo.msh"
-#     with open(tmp_geo_fn, "w") as f:
-#         f.write(text)
-
-#     # swapangle affects the minimum allowed dihedral angle, i think
-#     subprocess.call(["gmsh", "-3", tmp_geo_fn, "-swapangle", "0.03"])
-#     subprocess.call(["dolfin-convert", tmp_msh_fn, mesh_fn])
-
-#     # os.remove(tmp_geo_fn)
-#     # os.remove(tmp_msh_fn)
-
-#     return Mesh(mesh_fn)
+# print ""
+# for func, expr, name in zip(list(funcs)[:5], problem.exact_solution(), names[:5]):
+#     # func2 = Function(func.function_space())
+#     # func2.assign(expr)
+#     s = (
+#         "err_{}: {:.10f}\n".format(
+#             name, errornorm(
+#                 expr, func,
+#                 norm_type="l2", degree_rise=3,
+#                 mesh=func.function_space().mesh()
+#             )
+#         )
+#     )
+#     print s
 
 
-# def doit():
-#     run_MMS()
+# # def make_cylinder_box_mesh(mesh_fn, h_ic, h_oc, h_b, Ri, Ro):
+# #     import subprocess
+# #     import os
+# #     try:
+# #         os.remove(mesh_fn)
+# #     except:
+# #         pass
+
+# #     with open("cylinderbox.geo", "r") as f:
+# #         text = "".join(f.readlines())
+
+# #     text = text.replace("__H_IC__", str(h_ic), 1)
+# #     text = text.replace("__H_OC__", str(h_oc), 1)
+# #     text = text.replace("__H_B__", str(h_b), 1)
+# #     text = text.replace("__Ri__", str(Ri), 1)
+# #     text = text.replace("__Ro__", str(Ro), 1)
+
+# #     tmp_geo_fn = "temp_geo.geo"
+# #     tmp_msh_fn = "temp_geo.msh"
+# #     with open(tmp_geo_fn, "w") as f:
+# #         f.write(text)
+
+# #     # swapangle affects the minimum allowed dihedral angle, i think
+# #     subprocess.call(["gmsh", "-3", tmp_geo_fn, "-swapangle", "0.03"])
+# #     subprocess.call(["dolfin-convert", tmp_msh_fn, mesh_fn])
+
+# #     # os.remove(tmp_geo_fn)
+# #     # os.remove(tmp_msh_fn)
+
+# #     return Mesh(mesh_fn)
 
 
-# doit()
+# # def doit():
+# #     run_MMS()
 
-# make_cylinder_box_mesh("mesh.xml", 0.1, 0.1, 0.1, 0.3, 0.6)
-# u = Function(FunctionSpace(Mesh("mesh.xml"), "CG", 1))
-# File("vizz.pvd") << u
+
+# # doit()
+
+# # make_cylinder_box_mesh("mesh.xml", 0.1, 0.1, 0.1, 0.3, 0.6)
+# # u = Function(FunctionSpace(Mesh("mesh.xml"), "CG", 1))
+# # File("vizz.pvd") << u
  
