@@ -52,8 +52,8 @@ class AmbartsumyanMMSDomain(object):
         return 2
 
     def mark_boundary(self):
-        """Interface should be marked as 0. Do not set BCs there.
-        Other bdy is 1"""
+        """Interface should be marked as 1. Do not set BCs there.
+        Other bdy is 2"""
 
         stokes_markers = FacetFunction("size_t", self.stokes_domain, 0)
         porous_markers = FacetFunction("size_t", self.porous_domain, 0)
@@ -63,8 +63,8 @@ class AmbartsumyanMMSDomain(object):
         other_bdy = dolfin.CompiledSubDomain("on_boundary")
 
         for markers in [stokes_markers, porous_markers]:
-            other_bdy.mark(markers, 1)
-            interface_bdy.mark(markers, 0)
+            other_bdy.mark(markers, 2)
+            interface_bdy.mark(markers, 1)
 
         self.stokes_bdy_markers = stokes_markers
         self.porous_bdy_markers = porous_markers
@@ -93,7 +93,7 @@ def function_spaces(domain):
 
 def compute_A(domain):
     # names of params - all 1
-    dt, alpha, alpha_BJS, s0, mu_f, mu_p, lbd_f, lbd_p, K, Cp = [1]*10
+    dt, alpha, alpha_BJS, s0, mu_f, mu_p, lbd_f, lbd_p, K, Cp = [float(1)]*10
     C_BJS = (mu_f * alpha_BJS) / sqrt(K)
 
     # measures
@@ -101,10 +101,10 @@ def compute_A(domain):
     dxDarcy = Measure("dx", domain=domain.porous_domain)
     dxStokes = Measure("dx", domain=domain.stokes_domain)
 
-    dsDarcy = Measure("ds", domain=domain.porous_domain,
-                      subdomain_data=domain.porous_bdy_markers)
-    dsStokes = Measure("ds", domain=domain.stokes_domain,
-                       subdomain_data=domain.stokes_bdy_markers)
+    # dsDarcy = Measure("ds", domain=domain.porous_domain,
+    #                   subdomain_data=domain.porous_bdy_markers)
+    # dsStokes = Measure("ds", domain=domain.stokes_domain,
+    #                    subdomain_data=domain.stokes_bdy_markers)
 
     # test/trial functions
     W = function_spaces(domain)
@@ -185,44 +185,45 @@ def compute_A(domain):
     for row in a:
         assert len(row) == N_unknowns
 
-        
-    # homogeneous Dirichlet BCs
-    up_bcs = [
-        DirichletBC(
-            W[0], Constant((0, 0)),
-            domain.porous_bdy_markers, 1
-        )
-    ]
 
-    dp_bcs = [
-        DirichletBC(
-            W[2], Constant((0, 0)),
-            domain.porous_bdy_markers, 1
-        )
-    ]
+    ## the below cause A*P to have unbounded eigenvalues
+    # # homogeneous Dirichlet BCs
+    # up_bcs = [
+    #     DirichletBC(
+    #         W[0], Constant((0, 0)),
+    #         domain.porous_bdy_markers, 2
+    #     )
+    # ]
 
-    uf_bcs = [
-        DirichletBC(
-            W[3], Constant((0, 0)),
-            domain.stokes_bdy_markers, 1
-        )
-    ]
+    # dp_bcs = [
+    #     DirichletBC(
+    #         W[2], Constant((0, 0)),
+    #         domain.porous_bdy_markers, 2
+    #     )
+    # ]
 
-    bcs = [
-        up_bcs,
-        [],                 # pp
-        dp_bcs,
-        uf_bcs,
-        [],                 # pf
-        []                  # lbd
-    ]
+    # uf_bcs = [
+    #     DirichletBC(
+    #         W[3], Constant((0, 0)),
+    #         domain.stokes_bdy_markers, 2
+    #     )
+    # ]
+
+    # bcs = [
+    #     up_bcs,
+    #     [],                 # pp
+    #     dp_bcs,
+    #     uf_bcs,
+    #     [],                 # pf
+    #     []                  # lbd
+    # ]
 
     bcs = [[] for _ in range(6)] # no bcs
     
     AA = ii_assemble(a)
 
 
-    bbcs = block_bc(bcs, symmetric=False)
+    bbcs = block_bc(bcs, symmetric=True)
     AA = ii_convert(AA, "")
     AA = set_lg_map(AA)
     bbcs = bbcs.apply(
@@ -289,7 +290,7 @@ for N in Ns:
     
     print "N={}: min = {:.6f}, max = {:.6f}".format(N, min(eigs), max(eigs))
 
-print ""
+print "\nResults:"
 for N in Ns:
     eigs = eigses[N]
     print "N={:>3d}: min = {:.6f}, max = {:.6f}".format(N, min(eigs), max(eigs))
