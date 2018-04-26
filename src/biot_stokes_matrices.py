@@ -91,7 +91,7 @@ def function_spaces(domain):
     return W
 
 
-def compute_A(domain):
+def compute_A_P(domain):
     # names of params - all 1
     dt, alpha, alpha_BJS, s0, mu_f, mu_p, lbd_f, lbd_p, K, Cp = [float(1)]*10
     C_BJS = (mu_f * alpha_BJS) / sqrt(K)
@@ -187,38 +187,38 @@ def compute_A(domain):
 
 
     ## the below cause A*P to have unbounded eigenvalues
-    # # homogeneous Dirichlet BCs
-    # up_bcs = [
-    #     DirichletBC(
-    #         W[0], Constant((0, 0)),
-    #         domain.porous_bdy_markers, 2
-    #     )
-    # ]
+    # homogeneous Dirichlet BCs
+    up_bcs = [
+        DirichletBC(
+            W[0], Constant((0, 0)),
+            domain.porous_bdy_markers, 2
+        )
+    ]
 
-    # dp_bcs = [
-    #     DirichletBC(
-    #         W[2], Constant((0, 0)),
-    #         domain.porous_bdy_markers, 2
-    #     )
-    # ]
+    dp_bcs = [
+        DirichletBC(
+            W[2], Constant((0, 0)),
+            domain.porous_bdy_markers, 2
+        )
+    ]
 
-    # uf_bcs = [
-    #     DirichletBC(
-    #         W[3], Constant((0, 0)),
-    #         domain.stokes_bdy_markers, 2
-    #     )
-    # ]
+    uf_bcs = [
+        DirichletBC(
+            W[3], Constant((0, 0)),
+            domain.stokes_bdy_markers, 2
+        )
+    ]
 
-    # bcs = [
-    #     up_bcs,
-    #     [],                 # pp
-    #     dp_bcs,
-    #     uf_bcs,
-    #     [],                 # pf
-    #     []                  # lbd
-    # ]
+    bcs = [
+        up_bcs,
+        [],                 # pp
+        dp_bcs,
+        uf_bcs,
+        [],                 # pf
+        []                  # lbd
+    ]
 
-    bcs = [[] for _ in range(6)] # no bcs
+    # bcs = [[] for _ in range(6)] # no bcs
     
     AA = ii_assemble(a)
 
@@ -226,20 +226,12 @@ def compute_A(domain):
     bbcs = block_bc(bcs, symmetric=True)
     AA = ii_convert(AA, "")
     AA = set_lg_map(AA)
-    bbcs = bbcs.apply(
+
+    bbcs.apply(
         AA
     )
     AAm = ii_convert(AA)
-    return AAm.array()
-
-def compute_P(domain):
-    W = function_spaces(domain)
-    up, pp, dp, uf, pf, lbd = map(TrialFunction, W)
-    vp, wp, ep, vf, wf, mu = map(TestFunction, W)
-
-    dxGamma = Measure("dx", domain=domain.interface)
-    dxDarcy = Measure("dx", domain=domain.porous_domain)
-    dxStokes = Measure("dx", domain=domain.stokes_domain)
+    A = AAm.array()
 
     # block diagonal preconditioner
     P_up = inner(up, vp) * dxDarcy + inner(div(up), div(vp)) * dxDarcy # Hdiv
@@ -247,32 +239,40 @@ def compute_P(domain):
     P_dp = (inner(dp, ep) + inner(grad(dp), grad(ep))) * dxDarcy # H1
     P_uf = (inner(uf, vf) + inner(grad(uf), grad(vf))) * dxStokes # H1
     P_pf = (inner(pf, wf)) * dxStokes # H1
-    # P_lbd = (inner(mu, lbd)) * dxGamma # H1
-    P_lbd = hsmg.HsNorm(W[-1], s=0.5)
-    P_lbd * Function(W[-1]).vector() # enforces lazy computation
-
-    P_lbd = P_lbd.matrix
-
     P_up, P_pp, P_dp, P_uf, P_pf = map(
         lambda form: ii_convert(ii_assemble(form)),
         [P_up, P_pp, P_dp, P_uf, P_pf]
     )
 
+    P_lbd = hsmg.HsNorm(W[-1], s=0.5)
+    P_lbd * Function(W[-1]).vector() # enforces lazy computation
+
+    P_lbd = P_lbd.matrix
+
     P = ii_convert(
-        block_diag_mat([P_up, P_pp, P_dp, P_uf, P_pf, P_lbd])
+        block_diag_mat([P_up, P_pp, P_dp, P_uf, P_pf, P_lbd]), ""
     )
-    return P.array()
+
+    # TODO: should I use the bbcs object returned from the call to bbcs.apply() above here?
+    # or would that only be for if i wanted to apply to vectors?
+    bbcs.apply(
+        P
+    )
+    P = ii_convert(P).array()
+    return A, P
+
 
 
 # eigenvalue experiment
 Ps = {}
 As = {}
 eigses = {}
-Ns = [4, 8]
+Ns = [4, 8, 16]
 for N in Ns:
     domain = AmbartsumyanMMSDomain(N)
     
-    A, P = compute_A(domain), compute_P(domain)
+    A, P = compute_A_P(domain)
+
     Ps[N] = P
     As[N] = A
     import scipy
