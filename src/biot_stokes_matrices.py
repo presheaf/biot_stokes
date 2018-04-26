@@ -267,7 +267,7 @@ def compute_A_P(domain):
 Ps = {}
 As = {}
 eigses = {}
-Ns = [4, 8, 16]
+Ns = [4, 8]
 for N in Ns:
     domain = AmbartsumyanMMSDomain(N)
     

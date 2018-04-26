@@ -81,7 +81,7 @@ class SympyVector(object):
         return "(\n  {}\n)".format(",\n  ".join(
             "\"{}\"".format(si)
             for si in strings
-        )).replace(".0L", "").replace("M_PI", "pi")
+        )).replace(".0L", ".0").replace("M_PI", "pi")
 
     def __len__(self):
         return len(self._l)
@@ -162,7 +162,7 @@ class SympyMatrix(object):
         return "(\n  {}\n)".format(",\n  ".join(
             "{}".format(ri)
             for ri in rows
-        )).replace(".0L", "").replace("M_PI", "pi")
+        )).replace(".0L", ".0").replace("M_PI", "pi")
 
     def __len__(self):          # dimension, not number of elts
         if len(self._l) == 4:
@@ -204,9 +204,9 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 
-alpha_BJS = 1
-DP= 1
-dt = 1E-6
+alpha_BJS = 0
+DP= 0
+dt = 1E-4
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
 ## stokes/darcy/biot
@@ -235,7 +235,8 @@ def biot_RHS_gp(up, pp):        # not in paper, but diff. between up and -grad(p
 
 def BE_dt(expr, dt):
     """Compute discrete time derivative of expr using BE discretization."""
-    return (expr - expr.subs(t, t-dt))/dt
+    # return (expr - expr.subs(t, t-dt))/dt; 
+    return diff(expr, t)
 
 def biot_RHS_qp(dp, pp, up):
     # ddt = diff(s0 * pp + alpha * div(dp), t)
@@ -300,8 +301,8 @@ def verify_interface_conditions(up, pp, dp, uf, pf):
         2 * mu_p * norm_sym_grad(dp, np)
         - alpha * pp * np
     )
-    # ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
-    ddpdt = SympyVector(BE_dt(dp.x, t), BE_dt(dp.y, t))
+    # # ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
+    # ddpdt = SympyVector(BE_dt(dp.x, t), BE_dt(dp.y, t))
     
     # # 2.6: mass conservation (subs to be on interface y=0)
     # mass_conservation = restrict(inner(uf, nf) + inner(ddpdt + up, np))
@@ -334,7 +335,7 @@ def print_all_RHSes(up, pp, dp, uf, pf):
                 sympy.printing.ccode(u)
             )
 
-        return s.replace(".0L", "").replace("M_PI", "pi")
+        return s.replace(".0L", ".0").replace("M_PI", "pi")
         
     
     print 
@@ -347,8 +348,8 @@ def print_all_RHSes(up, pp, dp, uf, pf):
     
     
 
-# mms_sol = ambartsumyan_mms_solution()
-mms_sol = simple_mms_solution()
+mms_sol = ambartsumyan_mms_solution()
+# mms_sol = simple_mms_solution()
 verify_interface_conditions(*mms_sol)
 print_all_RHSes(*mms_sol)
 
