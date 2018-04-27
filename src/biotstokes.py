@@ -40,8 +40,8 @@ class AmbartsumyanMMSDomain(object):
         """Interface should be marked as 0. Do not set BCs there.
         Other bdy is 1"""
 
-        stokes_markers = FacetFunction("size_t", self.stokes_domain, 0)
-        porous_markers = FacetFunction("size_t", self.porous_domain, 0)
+        stokes_markers = MeshFunction("size_t", self.stokes_domain, 1, 0)
+        porous_markers = MeshFunction("size_t", self.porous_domain, 1, 0)
 
         interface_bdy = dolfin.CompiledSubDomain(
             "near(x[1], 0) && on_boundary")
@@ -65,7 +65,6 @@ class BiotStokesProblem(object):
             "s0": 1.,
             "mu_f": 1.,
             "mu_p": 1.,
-            "lbd_f": 1.,
             "lbd_p": 1.,
             "K": 1.,
             "alpha_BJS": 1.,
@@ -119,11 +118,12 @@ class BiotStokesProblem(object):
 
     def get_source_terms(self):
         """Override this to add source terms to the RHS
-        (f_p, q_p, f_f, q_f)"""
+        (s_vp, s_wp, s_ep, s_vf, s_wf)"""
         D = self.domain.dimension
         return [
             Constant([0] * D),
             Constant(0),
+            Constant([0] * D),
             Constant([0] * D),
             Constant(0)
         ]
@@ -144,7 +144,7 @@ class BiotStokesProblem(object):
     def get_solver(self):
         """Returns an iterator over solution values. Values are returned as a 
         list of Functions, with the ordering being [up, pp, dp, uf, pf, lbd]. 
-        First returned value is initial conditions (zero)."""
+        First returned value is initial conditions."""
 
         # names of params
 
@@ -154,7 +154,6 @@ class BiotStokesProblem(object):
         s0 = self.params["s0"]
         mu_f = self.params["mu_f"]
         mu_p = self.params["mu_p"]
-        lbd_f = self.params["lbd_f"]
         lbd_p = self.params["lbd_p"]
         K = self.params["K"]
         Cp = self.params["Cp"]
@@ -199,8 +198,8 @@ class BiotStokesProblem(object):
                                 [-0.5] * self.domain.dimension)
         assert n_Gamma_p(Point(0.0, 0.0))[1] == 1
 
-        tau = Constant(((0, -1),
-                        (1, 0))) * n_Gamma_f
+        # tau = Constant(((0, -1),
+        #                 (1, 0))) * n_Gamma_f
         
         Tup = Trace(up, self.domain.interface)
         Tvp = Trace(vp, self.domain.interface)
@@ -213,7 +212,7 @@ class BiotStokesProblem(object):
         
         adp = Constant(mu_p / K) * inner(up, vp) * dxDarcy
         aep = (
-            Constant(mu_p) * inner(sym(grad(dp)), sym(grad(ep))) * dxDarcy
+            Constant(2*mu_p) * inner(sym(grad(dp)), sym(grad(ep))) * dxDarcy
             + Constant(lbd_p) * inner(div(dp), div(ep)) * dxDarcy
         )
         bpvp  = - inner(div(vp), pp) * dxDarcy
@@ -234,15 +233,14 @@ class BiotStokesProblem(object):
         ]
 
         
-        # to build sum_j ((a*tau_j), (b*tau_j)) we use a trick - see Thoughts
         svfuf, svfdp, sepuf, sepdp = [
-            # Constant(C_BJS) * (
-            #     inner(testfunc, trialfunc)  * dxGamma
-            #     - inner(testfunc, n_Gamma_f) * inner(trialfunc, n_Gamma_f) * dxGamma
-            # )
             Constant(C_BJS) * (
-                inner(testfunc, tau) * inner(trialfunc, tau) * dxGamma
+                inner(testfunc, trialfunc)  * dxGamma
+                - inner(testfunc, n_Gamma_f) * inner(trialfunc, n_Gamma_f) * dxGamma
             )
+            # Constant(C_BJS) * (
+            #     inner(testfunc, tau) * inner(trialfunc, tau) * dxGamma
+            # )
 
             for (testfunc, trialfunc) in [
                 (Tvf, Tuf), (Tvf, Tdp), (Tep, Tuf), (Tep, Tdp)
@@ -253,10 +251,11 @@ class BiotStokesProblem(object):
         Co = Constant
         a = [
             [adp, bpvp, 0, 0, 0, npvp],
-            [-bpvpt, Co(s0/dt)*mpp, Co(-alpha/dt)*bpept, 0, 0, 0],
-            [0, Constant(alpha)*bpep, (aep + Co(1/dt)*sepdp), -sepuf, 0, npep],
+            [bpvpt, -Co(s0/dt)*mpp, Co(alpha/dt)*bpept, 0, 0, 0],
+            [0, Constant(alpha/dt)*bpep, Co(1/dt)*(aep + Co(1/dt)*sepdp),
+             -Co(1/dt)*sepuf, 0, Co(1/dt)*npep],
             [0, 0, Co(-1/dt)*svfdp, af + svfuf, bf, nfvf],
-            [0, 0, 0, -bft, 0, 0],
+            [0, 0, 0, bft, 0, 0],
             [npvpt, 0, Co(1/dt)*npept, nfvft, 0, 0],
         ]
 
@@ -293,17 +292,17 @@ class BiotStokesProblem(object):
             )
                         
 
-            L_darcy = (
+            L_neumann_darcy = (
                 inner(vp, np) * Constant(0) * dsDarcy
                 + darcy_neumann_terms
                 
             )
 
-            L_biot = (
+            L_neumann_biot = (
                 Constant(0) * inner(np, ep) * dsDarcy
                 + biot_neumann_terms
             )
-            L_stokes = (
+            L_neumann_stokes = (
                 Constant(0) * inner(nf, vf) * dsStokes
                 + stokes_neumann_terms
             )
@@ -317,15 +316,15 @@ class BiotStokesProblem(object):
             L_Cp_ep =  Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
             
             
-            L_BJS_vf = -Constant(C_BJS)*(
-                # inner(Tdp_prev, Tvf)  * dxGamma
-                # - inner(Tdp_prev, n_Gamma_f) * inner(Tvf, n_Gamma_f) * dxGamma
-                inner(Tdp_prev, tau) * inner(Tvf, tau) * dxGamma
-)
-            L_BJS_ep = Constant(C_BJS)*(
-                # inner(Tdp_prev, -Tep)  * dxGamma
-                # - inner(Tdp_prev, n_Gamma_f) * inner(-Tep, n_Gamma_f) * dxGamma
-                inner(Tdp_prev, tau) * inner(Tep, tau) * dxGamma
+            L_BJS_vf = -Constant(C_BJS/dt)*(
+                inner(Tdp_prev, Tvf)  * dxGamma
+                - inner(Tdp_prev, n_Gamma_f) * inner(Tvf, n_Gamma_f) * dxGamma
+                # inner(Tdp_prev, tau) * inner(Tvf, tau) * dxGamma
+            )
+            L_BJS_ep = Constant(C_BJS/dt)*(
+                inner(Tdp_prev, Tep)  * dxGamma
+                - inner(Tdp_prev, n_Gamma_f) * inner(Tep, n_Gamma_f) * dxGamma
+                # inner(Tdp_prev, tau) * inner(Tep, tau) * dxGamma
             )
             
 
@@ -342,11 +341,11 @@ class BiotStokesProblem(object):
             
 
             L = [
-                L_darcy + L_Cp_vp + Constant(mu_p/K)*S_vp,
-                (bpp + S_wp),
-                L_biot + L_Cp_ep + S_ep + L_BJS_ep,
-                L_stokes + S_vf + L_BJS_vf,
-                S_wf,
+                L_Cp_vp + Constant(mu_p/K)*S_vp,
+                -(bpp + S_wp),
+                Co(1/dt) * (L_Cp_ep + S_ep + L_BJS_ep),
+                S_vf + L_BJS_vf,
+                -S_wf,
                 L_mult
 
             ]
@@ -403,6 +402,7 @@ class BiotStokesProblem(object):
             AA
         )
         AAm = ii_convert(AA)
+        # assert np.all(AAm.array() == AAm.array())
         
         w = ii_Function(self.W)
 
@@ -447,7 +447,11 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         for k in params:
             params[k] = 1
 
+        params["Cp"] = 1
+        params["alpha_BJS"] = 1
+        params["s0"] = 1
         params["dt"] = 1E-4
+        
 
         super(AmbartsumyanMMSProblem, self).__init__(domain, params)
         up_e, _, dp_e, uf_e, _ = self.exact_solution()
@@ -468,32 +472,31 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
     
     def exact_solution(self):
-        
+ 
         up_e=Expression(
-        (
-          "-pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
-          "(1.0/2.0)*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
-        ), degree=5, t=0
+            (
+                "-pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
+                "(1.0/2.0)*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+            ), degree=5, t=0
         )
         pp_e=Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
         )
         dp_e=Expression(
-        (
-          "(-3*x[0] + cos(x[1]))*sin(pi*t)",
-          "(x[1] + 1)*sin(pi*t)"
-        ), degree=5, t=0
+            (
+                "-(3*x[0] - cos(x[1]))*sin(pi*t) + 1",
+                "(x[1] + 1)*sin(pi*t) + 1"
+            ), degree=5, t=0
         )
         uf_e=Expression(
-        (
-          "pi*(-3*x[0] + cos(x[1]))*cos(pi*t)",
-          "pi*(x[1] + 1)*cos(pi*t)"
-        ), degree=5, t=0
+            (
+                "pi*(-3*x[0] + cos(x[1]))*cos(pi*t)",
+                "pi*(x[1] + 1)*cos(pi*t)"
+            ), degree=5, t=0
         )
         pf_e=Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=5, t=0
         )
-
         
         return up_e, pp_e, dp_e, uf_e, pf_e
 
@@ -579,34 +582,48 @@ exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
 
 
 ## now solve
-N = 40
-problem = AmbartsumyanMMSProblem(N)
-solution = problem.get_solver()
+N0 = 80
 
-Nt = 1
-for i in range(Nt + 1):
-    t, funcs = solution.next()
-    print "\r Done with timestep {:>3d} of {}".format(i, Nt),
-    save_to_file(funcs, solution_fs, names)
-    problem.save_exact_solution_to_file(t, exact_fs)
+errs = {}
+for N in [N0, 2*N0]:
+    problem = AmbartsumyanMMSProblem(N)
+    solution = problem.get_solver()
+
+    Nt = 2
+    for i in range(Nt + 1):
+        t, funcs = solution.next()
+        print "\r Done with timestep {:>3d} of {}".format(i, Nt),
+        save_to_file(funcs, solution_fs, names)
+        problem.save_exact_solution_to_file(t, exact_fs)
 
 
-# print errors at final time step
-print "\n"
-print "N={}:".format(N)
-for func, expr, name, normtype in zip(
-        list(funcs)[:5], problem.exact_solution(),
-        names[:5], normlist
-):
-    expr.t = t
-    s = (
-        "err_{}: {:.10f} (norm={})".format(
-            name, errornorm(
-                expr, func,
-                norm_type=normtype, degree_rise=3,
-                mesh=func.function_space().mesh()
-            ), normtype
+    # print errors at final time step
+    print "\n"
+    # print "N={}:".format(N)
+    print "Done with N={}".format(N)
+    err_N = {}
+    for func, expr, name, normtype in zip(
+            list(funcs)[:5], problem.exact_solution(),
+            names[:5], normlist
+    ):
+        expr.t = t
+        error = errornorm(
+                    expr, func,
+                    norm_type=normtype, degree_rise=3,
+                    mesh=func.function_space().mesh()
+                )
+        err_N[name] = error
+        s = (
+            "err_{}: {:.10f} (norm={})".format(
+                name, error, normtype
+            )
         )
-    )
-    print s
+        # print s
+    errs[N] = err_N
 
+
+print "convergence rate going from N={} to N={}:".format(N0, 2*N0)
+for name in names[:5]:
+    import math
+    k = math.log(errs[N0][name]/errs[2*N0][name])/math.log(2)
+    print "{}: {:.5f}".format(name, k)

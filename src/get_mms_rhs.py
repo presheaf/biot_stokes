@@ -197,14 +197,18 @@ class SympyMatrix(object):
 
 # problem-specific stuff
 # parameters
-mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
-    "mu_f mu_p lbd_p eta_p alpha_BJS alpha K s0 DP"
-)
+# mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
+#     "mu_f mu_p lbd_p eta_p alpha_BJS alpha K s0 DP"
+# )
 
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 
 dt = 1E-4
+alpha_BJS = 1
+alpha = 1
+s0 = 1
+DP = 1
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
 ## stokes/darcy/biot
@@ -233,8 +237,8 @@ def biot_RHS_gp(up, pp):        # not in paper, but diff. between up and -grad(p
 
 def BE_dt(expr, dt):
     """Compute discrete time derivative of expr using BE discretization."""
-    return (expr - expr.subs(t, t-dt))/dt
-    # return diff(expr, t)
+    # return (expr - expr.subs(t, t-dt))/dt
+    return diff(expr, t)
 
 def biot_RHS_qp(dp, pp, up):
     ddt = BE_dt(s0 * pp + alpha * div(dp), dt)
@@ -245,7 +249,7 @@ def ambartsumyan_mms_solution():
     up = pi * exp(t) * SympyVector(-cos(pi * x) * cos(pi * y / 2),
                                    sin(pi * x) * sin(pi * y / 2) / 2)
     pp = exp(t) * sin(pi * x) * cos(pi * y / 2)
-    dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
+    dp = sin(pi * t) * SympyVector(-3 * x + cos(y), y + 1) + SympyVector(1, 1)
 
     uf = pi * cos(pi * t) * SympyVector(-3 * x + cos(y), y + 1)
     pf = exp(t) * sin(pi * x) * cos(pi * y / 2) + 2 * pi * cos(pi * t) + DP
@@ -293,7 +297,7 @@ def verify_interface_conditions(up, pp, dp, uf, pf):
     stressbalance_1 = restrict(inner(normstress_f, nf) + pp + DP)
     assert stressbalance_1 == 0
 
-    stressbalance_2 = normstress_f + normstress_p + nf * DP
+    stressbalance_2 = normstress_f + normstress_p - np * DP
     for i, component in enumerate(stressbalance_2):
         assert restrict(component) == 0
 
