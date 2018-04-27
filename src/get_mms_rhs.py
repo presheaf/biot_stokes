@@ -204,7 +204,7 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 
-alpha_BJS = 0
+alpha_BJS = 1
 DP= 0
 dt = 1E-4
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
@@ -338,7 +338,7 @@ def print_all_RHSes(up, pp, dp, uf, pf):
         return s.replace(".0L", ".0").replace("M_PI", "pi")
         
     
-    print 
+    print "\n"
     print "s_vp =", exprify(biot_RHS_gp(up, pp))
     print "s_wp =", exprify(biot_RHS_qp(dp, pp, up))
     print "s_ep = ", exprify(biot_RHS_fp(dp, pp))

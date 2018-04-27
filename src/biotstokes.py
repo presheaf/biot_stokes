@@ -8,69 +8,6 @@ import itertools
 import hsmg
 
 
-
-# class CylinderBoxDomain3D(object):
-#     def __init__(self, hi, ho):
-#         EPS = 1E-3
-#         R = 0.25
-#         # box_domain = mshr.Box(dolfin.Point(0, 0, 0), dolfin.Point(1, 1, 1))
-#         # _mesh = mshr.generate_mesh(box_domain, N)
-#         _mesh = make_cylinder_box_mesh("mymesh.xml", hi, ho, R)
-
-#         stokes_subdomain = dolfin.CompiledSubDomain(
-#             "sqrt(x[0] * x[0] + x[1] * x[1]) < R", R=R
-#         )
-
-#         subdomains = MeshFunction('size_t', _mesh, _mesh.topology().dim(), 0)
-
-#         # Awkward marking
-#         for cell in cells(_mesh):
-#             x = cell.midpoint().array()
-#             if stokes_subdomain.inside(x, False):
-#                 subdomains[cell] = 1
-#             else:
-#                 subdomains[cell] = 0
-
-#         submeshes, interface, _ = mortar_meshes(
-#             subdomains, range(2), strict=True, tol=EPS
-#         )
-
-#         self.full_domain = _mesh
-#         self.stokes_domain = submeshes[1]
-#         self.porous_domain = submeshes[0]
-#         self.interface = interface
-
-#         self.mark_boundary()
-
-#     @property
-#     def dimension(self):
-#         return 3
-
-#     def mark_boundary(self):
-#         """Interface should be marked as 0. Do not set BCs there.
-#         left, right, top, bottom = 1, 2, 3, 4"""
-
-#         stokes_markers = FacetFunction("size_t", self.stokes_domain, 0)
-#         porous_markers = FacetFunction("size_t", self.porous_domain, 0)
-
-#         interface_bdy = dolfin.CompiledSubDomain("on_boundary")
-
-#         left_bdy = dolfin.CompiledSubDomain("near(x[0], 0) && on_boundary")
-#         right_bdy = dolfin.CompiledSubDomain("near(x[0], 1) && on_boundary")
-#         top_bdy = dolfin.CompiledSubDomain("near(x[1], 0) && on_boundary")
-#         bottom_bdy = dolfin.CompiledSubDomain("near(x[1], 1) && on_boundary")
-
-#         for markers in [stokes_markers, porous_markers]:
-#             interface_bdy.mark(markers, 0)
-#             left_bdy.mark(markers, 1)
-#             right_bdy.mark(markers, 2)
-#             top_bdy.mark(markers, 3)
-#             bottom_bdy.mark(markers, 4)
-
-#         self.stokes_bdy_markers = stokes_markers
-#         self.porous_bdy_markers = porous_markers
-
-
 class AmbartsumyanMMSDomain(object):
     def __init__(self, N):
 
@@ -304,54 +241,16 @@ class BiotStokesProblem(object):
             ]
         ]
 
-        
+
+        Co = Constant
         a = [
             [adp, bpvp, 0, 0, 0, npvp],
-            [bpvpt, -Constant(s0/dt)*mpp, -Constant(-alpha/dt)*bpept, 0, 0, 0],
-            [0, Constant(alpha/dt)*bpep, Constant(1/dt) * (aep + sepdp), -Constant(1/dt)*sepuf, 0, Constant(1/dt)*npep],
-            [0, 0, -Constant(1/dt)*svfdp, af + svfuf, bf, nfvf],
-            [0, 0, 0, bft, 0, 0],
-            [npvpt, 0, Constant(1 / dt) * npept, nfvft, 0, 0],
+            [-bpvpt, Co(s0/dt)*mpp, Co(-alpha/dt)*bpept, 0, 0, 0],
+            [0, Constant(alpha)*bpep, (aep + Co(1/dt)*sepdp), -sepuf, 0, npep],
+            [0, 0, Co(-1/dt)*svfdp, af + svfuf, bf, nfvf],
+            [0, 0, 0, -bft, 0, 0],
+            [npvpt, 0, Co(1/dt)*npept, nfvft, 0, 0],
         ]
-
-
-        # # only biot/darcy
-        # a = [
-        #     [adp, bpvp, 0],
-        #     [-bpvpt, Constant(s0/dt)*mpp, Constant(-alpha/dt)*bpept],
-        #     [0, Constant(alpha)*bpep, aep + sepdp],
-        # ]
-
-        # a = [
-
-        #     [af, bf],
-        #     [-bft, 0],
-
-        # ]
-
-        # block diagonal preconditioner
-        P_up = inner(up, vp) * dxDarcy + inner(div(up), div(vp)) * dxDarcy # Hdiv
-        P_pp = inner(pp, wp) * dxDarcy # L2
-        P_dp = (inner(dp, ep) + inner(grad(dp), grad(ep))) * dxDarcy # H1
-        P_uf = (inner(uf, vf) + inner(grad(uf), grad(vf))) * dxStokes # H1
-        P_pf = (inner(pf, wf)) * dxStokes # H1
-        # P_lbd = (inner(mu, lbd)) * dxGamma # H1
-        P_lbd = hsmg.HsNorm(self.W[-1], s=0.5)
-        P_lbd * Function(self.W[-1]).vector() # enforces lazy computation
-
-        P_lbd = P_lbd.matrix
-        
-        P_up, P_pp, P_dp, P_uf, P_pf = map(
-            lambda form: ii_convert(ii_assemble(form)),
-            [P_up, P_pp, P_dp, P_uf, P_pf]
-        )
-        # self.P = ii_convert(
-        #     block_diag_mat([P_up, P_pp, P_dp, P_uf, P_pf, P_lbd])
-        # )
-
-        self.P = ii_convert(
-            block_diag_mat([P_uf, P_pf])
-        )
 
         
 
@@ -424,7 +323,7 @@ class BiotStokesProblem(object):
                 inner(Tdp_prev, Tvf)  * dxGamma
                 - inner(Tdp_prev, n_Gamma_f) * inner(Tvf, n_Gamma_f) * dxGamma
             )
-            L_BJS_ep = -Constant(C_BJS)*(
+            L_BJS_ep = Constant(C_BJS)*(
                 inner(Tdp_prev, -Tep)  * dxGamma
                 - inner(Tdp_prev, n_Gamma_f) * inner(-Tep, n_Gamma_f) * dxGamma
             )
@@ -442,8 +341,8 @@ class BiotStokesProblem(object):
 
             L = [
                 L_darcy + L_Cp_vp + S_vp,
-                -(bpp + S_wp),
-                Constant(1/dt) * (
+                (bpp + Constant(mu_p/K)*S_wp),
+                (
                     L_biot + L_Cp_ep + S_ep
                     + L_BJS_ep # this should be here
                 ),
@@ -452,7 +351,7 @@ class BiotStokesProblem(object):
                     L_BJS_vf # this should be here
                 )
                 ,
-                -S_wf,
+                S_wf,
                 L_mult
 
             ]
@@ -559,7 +458,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             params[k] = 1
 
         params["dt"] = 1E-4     # note: if you change this, mms_rhs will discretize wrongly
-        params["alpha_BJS"] = 0
+        params["alpha_BJS"] = 1
         params["Cp"] = 0
 
 
@@ -582,7 +481,6 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
     
     def exact_solution(self):
-        
 
         up_e=Expression(
         (
@@ -609,10 +507,10 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t)", degree=5, t=0
         )
 
-
         return up_e, pp_e, dp_e, uf_e, pf_e
 
     def get_source_terms(self):
+
         s_vp = Expression(
         (
           "0",
@@ -637,6 +535,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         s_wf =  Expression(
         "-2*pi*cos(pi*t)", degree=5, t=0
         )
+
         return s_vp, s_wp, s_ep, s_vf, s_wf
 
     # def exact_solution(self):
@@ -747,40 +646,8 @@ def save_errors(t, funcs, exprs, fns, norm_types):
                     t, err
                 )
             )
-# Ps = {}
-# As = {}
-# eigses = {}
-# Ns = [4, 8, 16, 32]
-# for N in Ns:
-#     problem = AmbartsumyanMMSProblem(N)
 
-#     solution = problem.get_solver()
-#     solution.next()
-
-#     P, A = problem.P.array(), problem.matrix.array()
-#     Ps[N] = P
-#     As[N] = A
-#     import scipy
-
-#     import numpy as np
-#     # print np.max(A), np.min(A)
-#     # print np.max(P), np.min(P)
-    
-    
-#     eigs = scipy.linalg.eigh(A, P, eigvals_only=True)
-
-#     eigs = sorted(map(abs, eigs))
-
-#     eigses[N] = eigs
-    
-#     print "N={}: min = {:.6f}, max = {:.6f}".format(N, min(eigs), max(eigs))
-
-# print ""
-# for N in Ns:
-#     eigs = eigses[N]
-#     print "N={:>3d}: min = {:.6f}, max = {:.6f}".format(N, min(eigs), max(eigs))
-
-N = 20
+N = 40
 problem = AmbartsumyanMMSProblem(N)
 
 solution = problem.get_solver()
@@ -808,7 +675,7 @@ for fn in err_fns:
     except OSError:
         pass
 
-Nt = 100
+Nt = 1
 for i in range(Nt + 1):
     t, funcs = solution.next()
     print "\r Done with timestep {:>3d} of {}".format(i, Nt),
@@ -835,46 +702,3 @@ for func, expr, name in zip(list(funcs)[:5], problem.exact_solution(), names[:5]
     )
     print s
 
-
-# # def make_cylinder_box_mesh(mesh_fn, h_ic, h_oc, h_b, Ri, Ro):
-# #     import subprocess
-# #     import os
-# #     try:
-# #         os.remove(mesh_fn)
-# #     except:
-# #         pass
-
-# #     with open("cylinderbox.geo", "r") as f:
-# #         text = "".join(f.readlines())
-
-# #     text = text.replace("__H_IC__", str(h_ic), 1)
-# #     text = text.replace("__H_OC__", str(h_oc), 1)
-# #     text = text.replace("__H_B__", str(h_b), 1)
-# #     text = text.replace("__Ri__", str(Ri), 1)
-# #     text = text.replace("__Ro__", str(Ro), 1)
-
-# #     tmp_geo_fn = "temp_geo.geo"
-# #     tmp_msh_fn = "temp_geo.msh"
-# #     with open(tmp_geo_fn, "w") as f:
-# #         f.write(text)
-
-# #     # swapangle affects the minimum allowed dihedral angle, i think
-# #     subprocess.call(["gmsh", "-3", tmp_geo_fn, "-swapangle", "0.03"])
-# #     subprocess.call(["dolfin-convert", tmp_msh_fn, mesh_fn])
-
-# #     # os.remove(tmp_geo_fn)
-# #     # os.remove(tmp_msh_fn)
-
-# #     return Mesh(mesh_fn)
-
-
-# # def doit():
-# #     run_MMS()
-
-
-# # doit()
-
-# # make_cylinder_box_mesh("mesh.xml", 0.1, 0.1, 0.1, 0.3, 0.6)
-# # u = Function(FunctionSpace(Mesh("mesh.xml"), "CG", 1))
-# # File("vizz.pvd") << u
- 
