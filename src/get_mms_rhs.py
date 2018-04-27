@@ -205,7 +205,7 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 
 alpha_BJS = 1
-DP= 0
+DP= 1
 dt = 1E-4
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
@@ -235,11 +235,10 @@ def biot_RHS_gp(up, pp):        # not in paper, but diff. between up and -grad(p
 
 def BE_dt(expr, dt):
     """Compute discrete time derivative of expr using BE discretization."""
-    # return (expr - expr.subs(t, t-dt))/dt; 
-    return diff(expr, t)
+    return (expr - expr.subs(t, t-dt))/dt
+    # return diff(expr, t)
 
 def biot_RHS_qp(dp, pp, up):
-    # ddt = diff(s0 * pp + alpha * div(dp), t)
     ddt = BE_dt(s0 * pp + alpha * div(dp), dt)
     return ddt + div(up)
 
@@ -301,27 +300,27 @@ def verify_interface_conditions(up, pp, dp, uf, pf):
         2 * mu_p * norm_sym_grad(dp, np)
         - alpha * pp * np
     )
-    # # ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
-    # ddpdt = SympyVector(BE_dt(dp.x, t), BE_dt(dp.y, t))
+    # ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
+    ddpdt = SympyVector(diff(dp.x, t), diff(dp.y, t))
     
-    # # 2.6: mass conservation (subs to be on interface y=0)
-    # mass_conservation = restrict(inner(uf, nf) + inner(ddpdt + up, np))
-    # assert mass_conservation == 0
+    # 2.6: mass conservation (subs to be on interface y=0)
+    mass_conservation = restrict(inner(uf, nf) + inner(ddpdt + up, np))
+    assert mass_conservation == 0
 
-    # # 2.7: stress balance
-    # stressbalance_1 = restrict(inner(normstress_f, nf) + pp + DP)
-    # assert stressbalance_1 == 0
+    # 2.7: stress balance
+    stressbalance_1 = restrict(inner(normstress_f, nf) + pp + DP)
+    assert stressbalance_1 == 0
 
-    # stressbalance_2 = normstress_f + normstress_p + nf * DP
-    # for i, component in enumerate(stressbalance_2):
-    #     assert restrict(component) == 0
+    stressbalance_2 = normstress_f + normstress_p + nf * DP
+    for i, component in enumerate(stressbalance_2):
+        assert restrict(component) == 0
 
-    # # 2.8: BJS
-    # shearstress = restrict(
-    #     inner(normstress_f, tau)
-    #     + mu_f * alpha_BJS / sqrt(K) * inner(uf - ddpdt, tau)
-    # )
-    # assert shearstress == 0
+    # 2.8: BJS
+    shearstress = restrict(
+        inner(normstress_f, tau)
+        + mu_f * alpha_BJS / sqrt(K) * inner(uf - ddpdt, tau)
+    )
+    assert shearstress == 0
 
 
 def print_all_RHSes(up, pp, dp, uf, pf):

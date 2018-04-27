@@ -198,6 +198,7 @@ class BiotStokesProblem(object):
                                 [-0.5] * self.domain.dimension)
         assert n_Gamma_p(Point(0.0, 0.0))[1] == 1
 
+        
         Tup = Trace(up, self.domain.interface, restriction="-", normal=n_Gamma_f)
         Tvp = Trace(vp, self.domain.interface, restriction="-", normal=n_Gamma_f)
 
@@ -316,7 +317,7 @@ class BiotStokesProblem(object):
             )
 
             L_Cp_vp =  Constant(Cp) * inner(Tvp, n_Gamma_p) * dxGamma
-            L_Cp_ep =  Constant(Cp) * inner(Tep, n_Gamma_f) * dxGamma
+            L_Cp_ep =  Constant(Cp) * inner(Tep, n_Gamma_p) * dxGamma
             
             
             L_BJS_vf = -Constant(C_BJS)*(
@@ -340,8 +341,8 @@ class BiotStokesProblem(object):
             
 
             L = [
-                L_darcy + L_Cp_vp + S_vp,
-                (bpp + Constant(mu_p/K)*S_wp),
+                L_darcy + L_Cp_vp + Constant(mu_p/K)*S_vp,
+                (bpp + S_wp),
                 (
                     L_biot + L_Cp_ep + S_ep
                     + L_BJS_ep # this should be here
@@ -459,7 +460,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
         params["dt"] = 1E-4     # note: if you change this, mms_rhs will discretize wrongly
         params["alpha_BJS"] = 1
-        params["Cp"] = 0
+        params["Cp"] = 1
 
 
         super(AmbartsumyanMMSProblem, self).__init__(domain, params)
@@ -504,7 +505,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         ), degree=5, t=0
         )
         pf_e=Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t)", degree=5, t=0
+        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=5, t=0
         )
 
         return up_e, pp_e, dp_e, uf_e, pf_e
@@ -518,7 +519,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         ), degree=5, t=0
         )
         s_wp = Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 2*pi*cos(pi*t)", degree=5, t=0
+        "0.999950001666638*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 20000.0*sin(pi*t) + 20000.0*sin(pi*(t - 0.0001))", degree=5, t=0
         )
         s_ep =  Expression(
         (
@@ -647,7 +648,7 @@ def save_errors(t, funcs, exprs, fns, norm_types):
                 )
             )
 
-N = 40
+N = 80
 problem = AmbartsumyanMMSProblem(N)
 
 solution = problem.get_solver()
