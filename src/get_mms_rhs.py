@@ -204,8 +204,6 @@ mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = symbols(
 mu_f, mu_p, lbd_p, eta_p, alpha_BJS, alpha, K, s0, DP = [1] * 9
 
 
-alpha_BJS = 1
-DP= 1
 dt = 1E-4
 # uf, up, dp: SympyVectors, pf, pp: sympy expressions
 
@@ -241,22 +239,6 @@ def BE_dt(expr, dt):
 def biot_RHS_qp(dp, pp, up):
     ddt = BE_dt(s0 * pp + alpha * div(dp), dt)
     return ddt + div(up)
-
-# ## Poisson
-# def stokes_poisson_RHS_ff(uf):
-#     return uf-vector_laplace(uf)
-
-# def stokes_poisson_RHS_qf(pf):
-#     return pf-laplace(pf)
-
-# def biot_poisson_RHS_fp(dp):
-
-
-# def darcy_poisson_RHS_gp(up):
-#     return -vector_laplace(up)
-
-# def biot_poisson_RHS_qp(pp):
-#     return -laplace(pp)
 
 
 def ambartsumyan_mms_solution():
@@ -348,7 +330,6 @@ def print_all_RHSes(up, pp, dp, uf, pf):
     
 
 mms_sol = ambartsumyan_mms_solution()
-# mms_sol = simple_mms_solution()
 verify_interface_conditions(*mms_sol)
 print_all_RHSes(*mms_sol)
 
@@ -368,27 +349,7 @@ def print_all_exact_solutions(up, pp, dp, uf, pf):
             name, s
         ).replace(".0L", ".0").replace("M_PI", "pi")
 
-def print_all_gradients(up, pp, dp, uf, pf):
-    print "\n------------------------------\n\nGradient:"
-    for func, name in zip(
-            [up, pp, dp, uf, pf],
-            ["up", "pp", "dp", "uf", "pf"],
-            
-    ):
-        if isinstance(func, SympyVector): # TODO: matrix stuff happens here, spin it out into SympyMatrix
-            name_x, name_y = name + "_x: \n", name + "_y: \n"
-            u1, u2 = func.x, func.y
-            u1x, u1y, u2x, u2y = diff(u1, x), diff(u1, y), diff(u2, x), diff(u2, y)
-            grad_string = str(SympyMatrix([[u1x, u1y], [u2x, u2y]]))
-            # grad_string = "((\"{}\", \"{}\"),\n(\"{}\", \"{}\")),\n".format(
-            #     *map(str, (u1x, u2x, u1y, u2y))
-            # )
-        else:
-            grad_string = str(grad(func))
-
-        print "g_{}=Expression(\n{}, degree=3, t=0\n)".format(name, grad_string)
-
 
 print ""
 print_all_exact_solutions(*mms_sol)
-# print_all_gradients(*mms_sol)
+
