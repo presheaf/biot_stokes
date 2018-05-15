@@ -69,11 +69,11 @@ class BiotStokesProblem(object):
             U = VectorFunctionSpace(self.domain.porous_domain, "CG", 1)
 
             # stokes
-            elt = triangle if self.domain.dimension == 2 else 3
+            elt = triangle if self.domain.dimension == 2 else tetrahedron
             V = FiniteElement('Lagrange', elt, 1)
-            Vb = FiniteElement('Bubble', elt, 3)
+            Vb = FiniteElement('Bubble', elt, 3 if self.domain.dimension == 2 else 4)
             mini = V + Vb
-            mini_vec = VectorElement(mini, 2) #
+            mini_vec = VectorElement(mini, 2)
             # dolfin.set_log_level(30)          # mini element not implemented well
             
 
