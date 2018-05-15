@@ -7,52 +7,12 @@ from xii import *
 import itertools
 import hsmg
 
+from biot_stokes_domains import *
 
-class AmbartsumyanMMSDomain(object):
-    def __init__(self, N):
-
-        _mesh = RectangleMesh(Point(0, -1), Point(1, 1), N, 2 * N)
-
-        stokes_subdomain = dolfin.CompiledSubDomain("x[1] > 0")
-
-        subdomains = MeshFunction('size_t', _mesh, _mesh.topology().dim(), 0)
-        # Awkward marking
-        for cell in cells(_mesh):
-            x = cell.midpoint().array()
-            subdomains[cell] = int(stokes_subdomain.inside(x, False))
-
-        self.full_domain = _mesh
-        self.stokes_domain = EmbeddedMesh(subdomains, 1)
-        self.porous_domain = EmbeddedMesh(subdomains, 0)
-
-        surfaces = MeshFunction('size_t', self.porous_domain,
-                                self.porous_domain.topology().dim() - 1, 0)
-        CompiledSubDomain("on_boundary && near(x[1], 0)").mark(surfaces, 1)
-        self.interface = EmbeddedMesh(surfaces, 1)
-
-        self.mark_boundary()
-
-    @property
-    def dimension(self):
-        return 2
-
-    def mark_boundary(self):
-        """Interface should be marked as 0. Do not set BCs there.
-        Other bdy is 1"""
-
-        stokes_markers = MeshFunction("size_t", self.stokes_domain, 1, 0)
-        porous_markers = MeshFunction("size_t", self.porous_domain, 1, 0)
-
-        interface_bdy = dolfin.CompiledSubDomain(
-            "near(x[1], 0) && on_boundary")
-        other_bdy = dolfin.CompiledSubDomain("on_boundary")
-
-        for markers in [stokes_markers, porous_markers]:
-            other_bdy.mark(markers, 2)
-            interface_bdy.mark(markers, 1)
-
-        self.stokes_bdy_markers = stokes_markers
-        self.porous_bdy_markers = porous_markers
+# TODO: the below doesn't actually silence FFC warnings
+# FFC complains when you try to set Dirichlet BCs on bubble elements, but it's probably fine :)
+import logging
+logging.getLogger('FFC').setLevel(logging.CRITICAL)
 
 
 
@@ -71,7 +31,7 @@ class BiotStokesProblem(object):
             "Cp": 1.
         }
 
-    def __init__(self, domain, param_dict):
+    def __init__(self, domain, param_dict, order=2):
         d = BiotStokesProblem.default_params()
         d.update(param_dict)
         self.params = d
@@ -90,7 +50,7 @@ class BiotStokesProblem(object):
             "darcy": {}
         }
 
-        self.make_function_spaces()
+        self.make_function_spaces(order=order)
 
     def add_dirichlet_bc(self, problem_name, subdomain_id, value):
         bc_dict = self._dirichlet_bcs[problem_name]
@@ -100,18 +60,41 @@ class BiotStokesProblem(object):
         bc_dict = self._neumann_bcs[problem_name]
         bc_dict[subdomain_id] = value
 
-    def make_function_spaces(self):
-        # biot
-        Vp = FunctionSpace(self.domain.porous_domain, "RT", 2)
-        Qp = FunctionSpace(self.domain.porous_domain, "DG", 1)
-        U = VectorFunctionSpace(self.domain.porous_domain, "CG", 2)
+    def make_function_spaces(self, order=2):
+        
+        if order == 1:
+            # biot
+            Vp = FunctionSpace(self.domain.porous_domain, "RT", 1)
+            Qp = FunctionSpace(self.domain.porous_domain, "DG", 0)
+            U = VectorFunctionSpace(self.domain.porous_domain, "CG", 1)
 
-        # stokes
-        Vf = VectorFunctionSpace(self.domain.stokes_domain, "CG", 2)
-        Qf = FunctionSpace(self.domain.stokes_domain, "CG", 1)
+            # stokes
+            elt = triangle if self.domain.dimension == 2 else 3
+            V = FiniteElement('Lagrange', elt, 1)
+            Vb = FiniteElement('Bubble', elt, 3)
+            mini = V + Vb
+            mini_vec = VectorElement(mini, 2) #
+            # dolfin.set_log_level(30)          # mini element not implemented well
+            
 
-        # lagrange multiplier
-        X = FunctionSpace(self.domain.interface, "DG", 1)
+            # dolfin.set_log_level(dolfin.CRITICAL)
+            Vf = FunctionSpace(self.domain.stokes_domain, mini_vec)
+            Qf = FunctionSpace(self.domain.stokes_domain, "CG", 1)
+
+            # lagrange multiplier
+            X = FunctionSpace(self.domain.interface, "DG", 0)
+        else:
+            # biot
+            Vp = FunctionSpace(self.domain.porous_domain, "RT", 2)
+            Qp = FunctionSpace(self.domain.porous_domain, "DG", 1)
+            U = VectorFunctionSpace(self.domain.porous_domain, "CG", 2)
+
+            # stokes
+            Vf = VectorFunctionSpace(self.domain.stokes_domain, "CG", 2)
+            Qf = FunctionSpace(self.domain.stokes_domain, "CG", 1)
+
+            # lagrange multiplier
+            X = FunctionSpace(self.domain.interface, "DG", 1)
 
         self.W = [Vp, Qp, U, Vf, Qf, X]
         print("dofs: {}".format(sum([sp.dim() for sp in self.W])))
@@ -187,15 +170,14 @@ class BiotStokesProblem(object):
                             )
 
 
+        n_Gamma_f = self.domain.interface_normal_f
+        n_Gamma_p = self.domain.interface_normal_p
+        
         # last argument is a point in the interior of the
         #  domain the normal should point outwards from
-        n_Gamma_f = OuterNormal(self.domain.interface,
-                                [0.5] * self.domain.dimension)
+
         # should be removed when not in the MMS domain
         assert n_Gamma_f(Point(0.0, 0.0))[1] == -1
-        
-        n_Gamma_p = OuterNormal(self.domain.interface,
-                                [-0.5] * self.domain.dimension)
         assert n_Gamma_p(Point(0.0, 0.0))[1] == 1
 
         # tau = Constant(((0, -1),
@@ -272,40 +254,23 @@ class BiotStokesProblem(object):
 
             # update t in neumann bcs
             for prob_name in ["biot", "darcy", "stokes"]:  
-                for expr in neumann_bcs[prob_name].keys():
+                for expr in neumann_bcs[prob_name].values():
                     expr.t = t
 
 
-            biot_neumann_terms, darcy_neumann_terms, stokes_neumann_terms = (
-                sum(
-                    [
-                        inner(
-                            testfunc, neumann_bcs[prob_name][subdomain]
-                        ) * measure(subdomain)
-                        for subdomain in neumann_bcs[prob_name]
-                    ]
-                ) for prob_name, testfunc, measure in zip(
-                    ["biot", "darcy", "stokes"],
-                    [ep, vp, vf],
-                    [dsDarcy, dsDarcy, dsStokes]
-                )
+            biot_neumann_terms = sum( # val = sigma_p
+                (inner(dot(val, np), ep) * dsDarcy(subdomain)
+                 for subdomain, val in neumann_bcs["biot"].items())
             )
-                        
-
-            L_neumann_darcy = (
-                inner(vp, np) * Constant(0) * dsDarcy
-                + darcy_neumann_terms
-                
+            stokes_neumann_terms = sum( # val = sigma_f
+                (inner(dot(val, nf), vf) * dsStokes(subdomain)
+                 for subdomain, val in neumann_bcs["stokes"].items())
+            )
+            darcy_neumann_terms = sum( # val = -pp
+                (dot(val*np, vp) * dsDarcy(subdomain)
+                 for subdomain, val in neumann_bcs["darcy"].items())
             )
 
-            L_neumann_biot = (
-                Constant(0) * inner(np, ep) * dsDarcy
-                + biot_neumann_terms
-            )
-            L_neumann_stokes = (
-                Constant(0) * inner(nf, vf) * dsStokes
-                + stokes_neumann_terms
-            )
 
             bpp = (
                 Constant(s0 / dt) * pp_prev * wp * dxDarcy
@@ -341,10 +306,10 @@ class BiotStokesProblem(object):
             
 
             L = [
-                L_Cp_vp + Constant(mu_p/K)*S_vp,
+                L_Cp_vp + Constant(mu_p/K)*S_vp + darcy_neumann_terms,
                 -(bpp + S_wp),
-                Co(1/dt) * (L_Cp_ep + S_ep + L_BJS_ep),
-                S_vf + L_BJS_vf,
+                Co(1/dt) * (L_Cp_ep + S_ep + L_BJS_ep + biot_neumann_terms),
+                S_vf + L_BJS_vf + stokes_neumann_terms,
                 -S_wf,
                 L_mult
 
@@ -441,7 +406,7 @@ class BiotStokesProblem(object):
 
 
 class AmbartsumyanMMSProblem(BiotStokesProblem):
-    def __init__(self, N):
+    def __init__(self, N, order):
         domain = AmbartsumyanMMSDomain(N)
         params = BiotStokesProblem.default_params()
         for k in params:
@@ -453,15 +418,36 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         params["dt"] = 1E-4
         
 
-        super(AmbartsumyanMMSProblem, self).__init__(domain, params)
-        up_e, _, dp_e, uf_e, _ = self.exact_solution()
+        super(AmbartsumyanMMSProblem, self).__init__(domain, params, order=order)
+        up_e, _, dp_e, _, _ = self.exact_solution()
 
         for prob_name, exact_sol in zip(
-                ["darcy", "biot", "stokes"],
-                [up_e, dp_e, uf_e]
+                ["darcy", "biot"],
+                [up_e, dp_e]
         ):
             self.add_dirichlet_bc(prob_name, 2, exact_sol)
 
+        # # neumann terms
+        # darcy_neumann = Expression(
+        #     "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
+        # )
+        # biot_neumann = Expression(
+        #     (
+        #         ("-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 8*sin(pi*t)", "-sin(x[1])*sin(pi*t)"),
+        #         ("-sin(x[1])*sin(pi*t)","-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])")
+        #     ), degree=5, t=0
+        # )
+        stokes_neumann = Expression(
+            (
+                ("-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 8*pi*cos(pi*t) - 1", "-pi*sin(x[1])*cos(pi*t)"),
+                ("-pi*sin(x[1])*cos(pi*t)", "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 1")
+            ), degree=5, t=0
+        )
+
+        
+        # self.add_neumann_bc("darcy", 2, darcy_neumann)
+        # self.add_neumann_bc("biot", 2, biot_neumann)
+        self.add_neumann_bc("stokes", 2, stokes_neumann)
 
 
     def get_initial_conditions(self):
@@ -472,59 +458,57 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
     
     def exact_solution(self):
- 
         up_e=Expression(
             (
                 "-pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
                 "(1.0/2.0)*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
-            ), degree=5, t=0
+            ), degree=6, t=0
         )
         pp_e=Expression(
-            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=6, t=0
         )
         dp_e=Expression(
             (
                 "-(3*x[0] - cos(x[1]))*sin(pi*t) + 1",
                 "(x[1] + 1)*sin(pi*t) + 1"
-            ), degree=5, t=0
+            ), degree=6, t=0
         )
         uf_e=Expression(
             (
                 "pi*(-3*x[0] + cos(x[1]))*cos(pi*t)",
                 "pi*(x[1] + 1)*cos(pi*t)"
-            ), degree=5, t=0
+            ), degree=6, t=0
         )
         pf_e=Expression(
-            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + 2*pi*cos(pi*t) + 1", degree=6, t=0
         )
-        
+
         return up_e, pp_e, dp_e, uf_e, pf_e
 
     def get_source_terms(self):
-
         s_vp = Expression(
-        (
-          "0",
-          "0"
-        ), degree=5, t=0
+            (
+                "0",
+                "0"
+            ), degree=5, t=0
         )
         s_wp = Expression(
-        "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 2*pi*cos(pi*t)", degree=5, t=0
+            "exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + (5.0/4.0)*pow(pi, 2)*exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 2*pi*cos(pi*t)", degree=5, t=0
         )
         s_ep =  Expression(
-        (
-          "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + sin(pi*t)*cos(x[1])",
-          "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
-        ), degree=5, t=0
+            (
+                "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + sin(pi*t)*cos(x[1])",
+                "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+            ), degree=5, t=0
         )
         s_vf = Expression(
-        (
-          "pi*(exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + cos(x[1])*cos(pi*t))",
-          "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
-        ), degree=5, t=0
+            (
+                "pi*(exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]) + cos(x[1])*cos(pi*t))",
+                "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
+            ), degree=5, t=0
         )
         s_wf =  Expression(
-        "-2*pi*cos(pi*t)", degree=5, t=0
+            "-2*pi*cos(pi*t)", degree=5, t=0
         )
 
         return s_vp, s_wp, s_ep, s_vf, s_wf
@@ -582,14 +566,14 @@ exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
 
 
 ## now solve
-N0 = 80
+N0 = 60
 
 errs = {}
 for N in [N0, 2*N0]:
-    problem = AmbartsumyanMMSProblem(N)
+    problem = AmbartsumyanMMSProblem(N, order=1)
     solution = problem.get_solver()
 
-    Nt = 2
+    Nt = 1
     for i in range(Nt + 1):
         t, funcs = solution.next()
         print "\r Done with timestep {:>3d} of {}".format(i, Nt),
