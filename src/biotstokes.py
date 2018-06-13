@@ -48,7 +48,7 @@ class BiotStokesProblem(object):
             # viscosity of water (Wikipedia)
             "mu_f": 0.8E-3,     # Pa*s
 
-            # (Støverud, Darcis, Helmig, Hassanizadeh)
+            # (Støverud, Darcis, Helmig, Hassanizadeh 2012)
             "mu_p": 1786,       # Pa
             "lbd_p": 7142,      # Pa
 
@@ -618,7 +618,7 @@ exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
 
 
 # now solve
-N0 = 40
+N0 = 10
 print "Using {} timesteps and T={}".format(Nt, T)
 
 errs = {}
@@ -632,10 +632,10 @@ for N in [N0, 2 * N0]:
     mms_params = {
         "alpha": 0.9995,
         "mu_f": 0.8E-3,
+        "lbd_p": 7142.,        # gets bad if bumped up an order of magnitude
         "mu_p": 1786,
-        "lbd_p": 7142.,
-        "K": 1E-5,
-        "alpha_BJS": 1,
+        "K": 1E-5,                 # gets bad at 1E-1, needs to be 1E-5
+        "alpha_BJS": 1E-2,      # gets bad at 1E-3
     }
 
     mms_params["s0"] = 1/mms_params["lbd_p"]
@@ -647,7 +647,7 @@ for N in [N0, 2 * N0]:
     # Nt = 10
     for i in range(Nt + 1):
         t, funcs = solution.next()
-        print "\r Done with timestep {:>3d} of {}".format(i, Nt),
+        print "\rDone with timestep {:>3d} of {}".format(i, Nt),
         save_to_file(funcs, solution_fs, names)
         problem.save_exact_solution_to_file(t, exact_fs)
 

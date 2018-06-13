@@ -62,12 +62,13 @@ class AmbartsumyanMMSDomain(object):
         self.stokes_bdy_markers = stokes_markers
         self.porous_bdy_markers = porous_markers
 
+
 class Tunnel2DDomain(object):
     def __init__(self, N):
 
-        _mesh = UnitSquareMesh(Point(0, 0), Point(1, 1), N, 3 * N)
+        _mesh = RectangleMesh(Point(0, -1), Point(1, 1), N, 2 * N)
 
-        stokes_subdomain = dolfin.CompiledSubDomain("(3*x[1] > 1) || (3*x[1] < 2)")
+        stokes_subdomain = dolfin.CompiledSubDomain("(3*x[1] < 1) || (3*x[1] > -1)")
 
         subdomains = MeshFunction('size_t', _mesh, _mesh.topology().dim(), 0)
         # Awkward marking
@@ -81,7 +82,9 @@ class Tunnel2DDomain(object):
 
         surfaces = MeshFunction('size_t', self.porous_domain,
                                 self.porous_domain.topology().dim() - 1, 0)
-        CompiledSubDomain("on_boundary && (near(3*x[1], 1) || near(3*x[1], 2))").mark(surfaces, 1)
+        CompiledSubDomain(
+            "on_boundary && (near(3*x[1], 1) && near(3*x[1], -1))"
+        ).mark(surfaces, 1)
         self.interface = EmbeddedMesh(surfaces, 1)
 
         self.mark_boundary()
@@ -90,15 +93,23 @@ class Tunnel2DDomain(object):
     def dimension(self):
         return 2
 
+    @property                   # interface normal pointing outwards from fluid domain
+    def interface_normal_f(self):
+        return OuterNormal(self.interface, [0.0] * self.dimension)
+    @property
+    def interface_normal_p(self):
+        return OuterNormal(self.interface, [-0.0] * self.dimension)
+
+
     def mark_boundary(self):
-        """Interface should be marked as 0. Do not set BCs there.
-        Other bdy is 1"""
+        """Interface should be marked as 1. Do not set BCs there.
+        Other bdy is 2"""
 
         stokes_markers = MeshFunction("size_t", self.stokes_domain, 1, 0)
         porous_markers = MeshFunction("size_t", self.porous_domain, 1, 0)
 
         interface_bdy = dolfin.CompiledSubDomain(
-            "on_boundary && (near(3*x[1], 1) || near(3*x[1], 2))")
+            "(near(3*x[1], 1) || near(3*x[1], -1)) && on_boundary")
         other_bdy = dolfin.CompiledSubDomain("on_boundary")
 
         for markers in [stokes_markers, porous_markers]:
@@ -107,6 +118,3 @@ class Tunnel2DDomain(object):
 
         self.stokes_bdy_markers = stokes_markers
         self.porous_bdy_markers = porous_markers
-
-        
-

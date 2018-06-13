@@ -11,66 +11,7 @@
 
 \setcounter{secnumdepth}{-1}
 
-%% notation
-% I nearly called this 'smartmath', but am anticipating feeling really stupid for thinking this was smart in half a year or so
-\newcommand{\mathspace}[1]{\ensuremath{#1}\xspace} %command for defining commands
-
-% differential operators and such
-\newcommand{\D}{\mathspace{\mathbf{D}}}
-\newcommand{\sigmabf}{\mathspace{\boldsymbol{\sigma}}}
-\newcommand{\grad}{\mathspace{\nabla}}
-\renewcommand{\div}{\mathspace{\nabla \cdot}}
-\newcommand{\inner}[2]{\mathspace{\left (#1, #2 \right)}}
-\newcommand{\defeq}{\mathspace{:=}}
-% \newcommand{\ddt}[1]{\mathspace{\frac {\partial #1} {\partial t}}}
-\newcommand{\ddt}[1]{\mathspace{\partial_t #1}}
-\newcommand{\dt}{\mathspace{\Delta t}}
-\newcommand{\matrixform}[1]{\mathspace{\left [ #1 \right ]}}
-\newcommand{\matzero}{}        %can't decide if matrix looks readable without 0-entries written in 
-
-% domains and normals
-\newcommand{\taubf}{\mathspace{\boldsymbol{\tau}}}
-\newcommand{\stokes}{\mathspace{\Omega_{f}}}
-\newcommand{\stokesbdy}{\mathspace{\Gamma_{f}}}
-\newcommand{\darcy}{\mathspace{\Omega_{p}}}
-\newcommand{\darcybdy}{\mathspace{\Gamma_{p}}}
-\newcommand{\interface}{\mathspace{\Gamma_{fp}}}
-\newcommand{\nf}{\mathspace{\mathbf{n}_f}}
-\newcommand{\np}{\mathspace{\mathbf{n}_p}}
-\newcommand{\nporf}{\mathspace{\mathbf{n}_*}}
-
-% shorthands for integrals - i.e. integral over Stokes, Stokes bdy + interface, Stokes bdy, interface
-\newcommand{\intD}{\mathspace{\int \limits_{\darcy}}}
-\newcommand{\intDbdyI}{\mathspace{\int \limits_{\partial \darcy}}}
-\newcommand{\intDbdy}{\mathspace{\int \limits_{\darcybdy}}}
-\newcommand{\intS}{\mathspace{\int \limits_{\stokes}}}
-\newcommand{\intSbdyI}{\mathspace{\int \limits_{\partial \stokes}}}
-\newcommand{\intSbdy}{\mathspace{\int \limits_{\stokesbdy}}}
-\newcommand{\intI}{\mathspace{\int \limits_{\interface}}}
-
-
-% fluid test\trial functions
-
-
-\newcommand{\uf}{\mathspace{\mathbf{u}_f}}
-\newcommand{\vf}{\mathspace{\mathbf{v}_f}}
-\newcommand{\up}{\mathspace{\mathbf{u}_p}}
-\newcommand{\vp}{\mathspace{\mathbf{v}_p}}
-
-% pressure test\trial functions
-\newcommand{\pf}{\mathspace{p_f}}
-\newcommand{\pp}{\mathspace{p_p}}
-\newcommand{\wf}{\mathspace{w_f}}
-\renewcommand{\wp}{\mathspace{w_p}}
-
-% displacement test\trial functions
-\newcommand{\disp}{\mathspace{\boldsymbol{\eta}_p}}
-\newcommand{\disptest}{\mathspace{\boldsymbol{\xi}_p}}
-
-% multiplier test\trial functions
-\newcommand{\mult}{\mathspace{\lambda_{\Gamma}}}
-\newcommand{\multtest}{\mathspace{\mu_{\Gamma}}}
-
+\input{commands}
 
 
 \begin{document}
