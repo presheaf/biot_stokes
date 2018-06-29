@@ -1,5 +1,5 @@
 import os
-import mshr
+# import mshr
 import dolfin
 from block import block_mat, block_vec, block_bc
 # from petsc4py import PETSc
@@ -15,9 +15,13 @@ from biot_stokes_domains import *
 import logging
 logging.getLogger('FFC').setLevel(logging.CRITICAL)
 
-T = 1E-3
-Nt = 10
 
+
+dt = 1E-2
+Nt = 100
+T = Nt * dt
+
+N_periods = 2
 
 class BiotStokesProblem(object):
     @staticmethod
@@ -26,7 +30,7 @@ class BiotStokesProblem(object):
             "dt": 1.,
             "alpha": 1,
             "s0": 1.,
-            "mu_f": 1.,
+            "mu": 1.,
             "mu_p": 1,
             "lbd_p": 1.,
             "K": 1,
@@ -38,7 +42,7 @@ class BiotStokesProblem(object):
     def brain_params():
         
         params = {
-            "dt": 1E-3,
+            "dt": 1E-5,
 
             # (Wirth B, Sobey I. 2009. Analytic solution during an infusion test of the linear unsteady poroelastic equations in a spherically symmetric model of the brain.)
             "alpha": 0.9995,
@@ -46,9 +50,9 @@ class BiotStokesProblem(object):
             # "s0": 1/lbd_p,
 
             # viscosity of water (Wikipedia)
-            "mu_f": 0.8E-3,     # Pa*s
+            "mu": 0.8E-3,     # Pa*s
 
-            # (Støverud, Darcis, Helmig, Hassanizadeh 2012)
+            # (Stoverud, Darcis, Helmig, Hassanizadeh 2012)
             "mu_p": 1786,       # Pa
             "lbd_p": 7142,      # Pa
 
@@ -63,7 +67,7 @@ class BiotStokesProblem(object):
         }
         params["s0"] = 1 / float(params["lbd_p"])
 
-        return pars
+        return params
     
     def __init__(self, domain, param_dict, order=2):
         d = BiotStokesProblem.default_params()
@@ -167,13 +171,13 @@ class BiotStokesProblem(object):
         alpha = self.params["alpha"]
         alpha_BJS = self.params["alpha_BJS"]
         s0 = self.params["s0"]
-        mu_f = self.params["mu_f"]
+        mu = self.params["mu"]
         mu_p = self.params["mu_p"]
         lbd_p = self.params["lbd_p"]
         K = self.params["K"]
         Cp = self.params["Cp"]
 
-        C_BJS = (mu_f * alpha_BJS) / sqrt(K)
+        C_BJS = (mu * alpha_BJS) / sqrt(K)
 
         # names of things needed to build matrices
         dxGamma = Measure("dx", domain=self.domain.interface)
@@ -202,12 +206,11 @@ class BiotStokesProblem(object):
         n_Gamma_f = self.domain.interface_normal_f
         n_Gamma_p = self.domain.interface_normal_p
 
-        # last argument is a point in the interior of the
-        #  domain the normal should point outwards from
 
         # should be removed when not in the MMS domain
-        assert n_Gamma_f(Point(0.0, 0.0))[1] == -1
-        assert n_Gamma_p(Point(0.0, 0.0))[1] == 1
+
+        # assert n_Gamma_f(Point(0, 1/3.))[1] == 1
+        # assert n_Gamma_p(Point(0, 1/3.))[1] == -1
 
         # tau = Constant(((0, -1),
         #                 (1, 0))) * n_Gamma_f
@@ -216,12 +219,12 @@ class BiotStokesProblem(object):
         Tvp = Trace(vp, self.domain.interface)
 
         # a bunch of forms
-        af = Constant(2 * mu_f) * inner(sym(grad(uf)),
+        af = Constant(2 * mu) * inner(sym(grad(uf)),
                                         sym(grad(vf))) * dxStokes
 
         mpp = pp * wp * dx
 
-        adp = Constant(mu_p / K) * inner(up, vp) * dxDarcy
+        adp = Constant(mu / K) * inner(up, vp) * dxDarcy
         aep = (
             Constant(2 * mu_p) * inner(sym(grad(dp)), sym(grad(ep))) * dxDarcy
             + Constant(lbd_p) * inner(div(dp), div(ep)) * dxDarcy
@@ -268,6 +271,8 @@ class BiotStokesProblem(object):
             [0, 0, 0, bft, 0, 0],
             [npvpt, 0, Co(1 / dt) * npept, nfvft, 0, 0],
         ]
+
+        AA = ii_assemble(a)
 
         def compute_RHS(dp_prev, pp_prev, neumann_bcs, t):
             nf = FacetNormal(self.domain.stokes_domain)
@@ -329,7 +334,7 @@ class BiotStokesProblem(object):
             S_wf = inner(s_wf, wf) * dxStokes
 
             L = [
-                L_Cp_vp + Constant(mu_p / K) * S_vp + darcy_neumann_terms,
+                L_Cp_vp + Constant(mu / K) * S_vp + darcy_neumann_terms,
                 -(bpp + S_wp),
                 Co(1 / dt) * (L_Cp_ep + S_ep + L_BJS_ep + biot_neumann_terms),
                 S_vf + L_BJS_vf + stokes_neumann_terms,
@@ -372,7 +377,6 @@ class BiotStokesProblem(object):
             []                  # lbd
         ]
 
-        AA = ii_assemble(a)
 
         def update_t_in_dirichlet_bcs(t):
             all_bc_exprs = (
@@ -456,8 +460,8 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
         stokes_neumann = Expression(
             (
-                ("-8*pi*mu_f*cos(pi*t) - exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])",                        "-pi*mu_f*sin(x[1])*cos(pi*t)"                     ),
-                (                      "-pi*mu_f*sin(x[1])*cos(pi*t)"                     ,               "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])"             )
+                ("-8*pi*mu*cos(pi*t) - exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])",                        "-pi*mu*sin(x[1])*cos(pi*t)"                     ),
+                (                      "-pi*mu*sin(x[1])*cos(pi*t)"                     ,               "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])"             )
             ), degree=6, t=0, **self.params
         )
 
@@ -473,6 +477,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         return exprs
 
     def exact_solution(self):
+        """ TODO: change this so that mu_p becomes mu where appropriate, """
         up_e=Expression(
             (
                 "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
@@ -495,7 +500,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             ), degree=5, t=0, **self.params
         )
         pf_e=Expression(
-            "2*pi*mu_f*cos(pi*t) + exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0, **self.params
+            "2*pi*mu*cos(pi*t) + exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0, **self.params
         )
 
         return up_e, pp_e, dp_e, uf_e, pf_e
@@ -518,7 +523,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         )
         s_vf = Expression(
             (
-                "pi*(mu_f*cos(x[1])*cos(pi*t) + exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]))",
+                "pi*(mu*cos(x[1])*cos(pi*t) + exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]))",
                 "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
             ), degree=6, t=0, **self.params
         )
@@ -558,38 +563,43 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             f << u
 
 
-class TunnelProblem(BiotStokesProblem):
-    def __init__(self, params, N, pi, order=2):
-        domain = Tunnel2DDomain(N)
+class Tunnel2DProblem(BiotStokesProblem):
+    def __init__(self, domain, params, p_in, p_zero, order=2):
+        domain = domain
         params = BiotStokesProblem.default_params()
 
-        
-
-        super(AmbartsumyanMMSProblem, self).__init__(
+        super(Tunnel2DProblem, self).__init__(
             domain, params, order=order)
 
-
-        # dirichlet BCs on walls
+        # # dirichlet BCs on walls
         zero_vec = Constant((0, 0))
         self.add_dirichlet_bc("darcy", 2, zero_vec)
-        
+        self.add_dirichlet_bc("biot", 2, zero_vec)
 
-        # # neumann terms
+    
+
+        # neumann terms
         # darcy_neumann = Expression(
-        #     "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0
+        #     "p0", degree=5, t=0, p0=p_zero
         # )
         # biot_neumann = Expression(
         #     (
-        #         ("-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1]) - 8*sin(pi*t)", "-sin(x[1])*sin(pi*t)"),
-        #         ("-sin(x[1])*sin(pi*t)","-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])")
+        #         ("0", "0"),
+        #         ("0","0")
         #     ), degree=5, t=0
         # )
+
+        # on right outlet, p = 0, on left, p = (1 + sin(N_periods*t))/2
+        # TODO: divide by 2
+        p_bdy_string = "-(p*(L-x[0]) * (1 + sin(2*pi*t/T_end))/2. + p0)"
         stokes_neumann = Expression(
-            (
-                ("p", "0"),
-                ("0", "p")
-            ), degree=5, t=0, p=pi
+            (                   # - because sigma_f is -p * I
+                (p_bdy_string, "0"),
+                ("0", p_bdy_string)
+            ), degree=5, t=0, L = self.domain.L,
+            p=p_in, T_end=(Nt*params["dt"]/N_periods), p0 = p_zero
         )
+        
 
         # self.add_neumann_bc("darcy", 2, darcy_neumann)
         # self.add_neumann_bc("biot", 2, biot_neumann)
@@ -604,7 +614,7 @@ def save_to_file(things, fs, names):
 
 names = ["up", "pp", "dp", "uf", "pf", "lbd"]
 normlist = ["L2", "L2", "H1", "H1", "L2"]
-result_dir = "mms_results"
+result_dir = "tunnel_results"
 
 
 def in_dir(fn):
@@ -613,71 +623,89 @@ def in_dir(fn):
 
 solution_fs = map(File, map(in_dir, ["up.pvd", "pp.pvd",
                                      "dp.pvd", "uf.pvd", "pf.pvd", "lbd.pvd"]))
-exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
-                                  "dp_e.pvd", "uf_e.pvd", "pf_e.pvd"]))
+# exact_fs = map(File, map(in_dir, ["up_e.pvd", "pp_e.pvd",
+#                                   "dp_e.pvd", "uf_e.pvd", "pf_e.pvd"]))
 
 
 # now solve
-N0 = 10
+brain_params = BiotStokesProblem.brain_params()
 print "Using {} timesteps and T={}".format(Nt, T)
 
 errs = {}
 
 import random
+brain_params["dt"] = dt
+
+L = 20
+D = 8
+N = 35
+
+MMHG = 133                      # mmHg in Pascal
+dpdx = 718/(0.65E3)             # pressure gradient in Pa/micron
+p_in = dpdx * L
+p_zero = 1 * MMHG
+
+domain = Tunnel2DDomain(N, L, D)
+problem = Tunnel2DProblem(domain, brain_params, p_in, p_zero, order=2)
+solution = problem.get_solver()
 
 
+for i in range(Nt + 1):
+    t, funcs = solution.next()
+    print "\rDone with timestep {:>3d} of {}".format(i, Nt),
+    save_to_file(funcs, solution_fs, names)
 
-for N in [N0, 2 * N0]:
+# for N in [N0, 2 * N0]:
 
-    mms_params = {
-        "alpha": 0.9995,
-        "mu_f": 0.8E-3,
-        "lbd_p": 7142.,        # gets bad if bumped up an order of magnitude
-        "mu_p": 1786,
-        "K": 1E-5,                 # gets bad at 1E-1, needs to be 1E-5
-        "alpha_BJS": 1E-2,      # gets bad at 1E-3
-    }
+#     mms_params = {
+#         "alpha": 0.9995,
+#         "mu": 0.8E-3,
+#         "lbd_p": 7142.,        # gets bad if bumped up an order of magnitude
+#         "mu_p": 1786,
+#         "K": 1E-5,                 # gets bad at 1E-1, needs to be 1E-5
+#         "alpha_BJS": 1E-2,      # gets bad at 1E-3
+#     }
 
-    mms_params["s0"] = 1/mms_params["lbd_p"]
-
-
-    problem = AmbartsumyanMMSProblem(N, mms_params, order=2)
-    solution = problem.get_solver()
-
-    # Nt = 10
-    for i in range(Nt + 1):
-        t, funcs = solution.next()
-        print "\rDone with timestep {:>3d} of {}".format(i, Nt),
-        save_to_file(funcs, solution_fs, names)
-        problem.save_exact_solution_to_file(t, exact_fs)
-
-    # print errors at final time step
-    print "\n"
-    # print "N={}:".format(N)
-    print "Done with N={}".format(N)
-    err_N = {}
-    for func, expr, name, normtype in zip(
-            list(funcs)[:5], problem.exact_solution(),
-            names[:5], normlist
-    ):
-        expr.t = t
-        error = errornorm(
-            expr, func,
-            norm_type=normtype, degree_rise=3,
-            mesh=func.function_space().mesh()
-        )
-        err_N[name] = error
-        s = (
-            "err_{}: {:.10f} (norm={})".format(
-                name, error, normtype
-            )
-        )
-        # print s
-    errs[N] = err_N
+#     mms_params["s0"] = 1/mms_params["lbd_p"]
 
 
-print "convergence rate going from N={} to N={}:".format(N0, 2 * N0)
-for name in names[:5]:
-    import math
-    k = math.log(errs[N0][name] / errs[2 * N0][name]) / math.log(2)
-    print "{}: {:.5f}".format(name, k)
+#     problem = AmbartsumyanMMSProblem(N, mms_params, order=2)
+#     solution = problem.get_solver()
+
+#     # Nt = 10
+#     for i in range(Nt + 1):
+#         t, funcs = solution.next()
+#         print "\rDone with timestep {:>3d} of {}".format(i, Nt),
+#         save_to_file(funcs, solution_fs, names)
+#         problem.save_exact_solution_to_file(t, exact_fs)
+
+#     # print errors at final time step
+#     print "\n"
+#     # print "N={}:".format(N)
+#     print "Done with N={}".format(N)
+#     err_N = {}
+#     for func, expr, name, normtype in zip(
+#             list(funcs)[:5], problem.exact_solution(),
+#             names[:5], normlist
+#     ):
+#         expr.t = t
+#         error = errornorm(
+#             expr, func,
+#             norm_type=normtype, degree_rise=3,
+#             mesh=func.function_space().mesh()
+#         )
+#         err_N[name] = error
+#         s = (
+#             "err_{}: {:.10f} (norm={})".format(
+#                 name, error, normtype
+#             )
+#         )
+#         # print s
+#     errs[N] = err_N
+
+
+# print "convergence rate going from N={} to N={}:".format(N0, 2 * N0)
+# for name in names[:5]:
+#     import math
+#     k = math.log(errs[N0][name] / errs[2 * N0][name]) / math.log(2)
+#     print "{}: {:.5f}".format(name, k)

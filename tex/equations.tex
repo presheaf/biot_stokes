@@ -41,14 +41,14 @@ The unknowns of the system and the corresponding test functions are:
 \section{Parameters}
 
 \begin{description}
-\item[$\mu_f$] fluid viscosity (denoted $\mu$ in the \cite{ambartsumyan})
+\item[$\mu$] fluid viscosity
   
 \item[$\lambda_p, \mu_p$] Lamé parameters. Denoted $\mu$ in \cite{ambartsumyan}.
 \item[$\alpha$] Biot-Willis constant
 \item[$K$] Permeability tensor. Symmetric, bounded, positive definite. I take it to be scalar.
 \item[$\alpha_{BJS}$] Friction coefficient
 \item[$s_0$] Storage coefficient
-\item[$B=$] $\frac {\mu_f \alpha_{BJS}} {\sqrt{K}}$ The coefficient in the BJS condition. Could be zero.
+\item[$B=$] $\frac {\mu \alpha_{BJS}} {\sqrt{K}}$ The coefficient in the BJS condition. Could be zero.
 \end{description}
 
 \section{Notation}
@@ -56,7 +56,7 @@ The unknowns of the system and the corresponding test functions are:
 \item \nf, \np are the outward unit normal vectors to $\partial \stokes, \partial \darcy$. 
 \item $\taubf_{f, j}, j = 1, \ldots, d-1$ is an orthogonal system of unit tangent vectors at \interface.
 \item $\D(\mathbf{v}) \defeq \frac 12 (\grad \mathbf{v} + \grad \mathbf{v}^T)$
-\item $\sigmabf_f(\uf, \pf) \defeq -\pf \mathbf{I} + 2 \mu_f \D(\uf)$
+\item $\sigmabf_f(\uf, \pf) \defeq -\pf \mathbf{I} + 2 \mu \D(\uf)$
 \item $\sigmabf_p(\disp, \pp) \defeq \lambda_p (\div \disp)\mathbf{I}  + 2 \mu_p \D(\disp) - \alpha \pp \mathbf{I} $
 \end{itemize}
 
@@ -155,8 +155,8 @@ Now, as the $\partial \stokes$ consists of \stokesbdy and \interface, the bounda
 
 Before proceeding, we expand\footnote{The equality $\D(\uf) \colon \grad \vf = \D(\uf) \colon \D(\vf)$ looks false because $\grad \vf \neq \D(\vf)$, but $\D(\uf)$ is symmetric, so $\D(\uf) \colon \grad \vf = \D(\uf) \colon \grad \vf^T = \D(\uf) \colon \D(\vf)$.}
 \begin{align*}
-  \intS \sigmabf_f \colon \grad \vf &= \intS (-\pf \mathbf{I} + 2 \mu_f \D(\uf)) \colon \grad \vf \\
-                                    &= \intS -\pf \div \vf + \intS 2 \mu_f \D(\uf) \colon \grad \vf \\
+  \intS \sigmabf_f \colon \grad \vf &= \intS (-\pf \mathbf{I} + 2 \mu \D(\uf)) \colon \grad \vf \\
+                                    &= \intS -\pf \div \vf + \intS 2 \mu \D(\uf) \colon \grad \vf \\
                                       &= b_f(\vf, \pf) + a_f(\uf, \vf)
 \end{align*}
 So the contribution here is $$a_f(\uf, \vf) + b_f(\vf, \pf) -I_{\vf} - (\sigmabf_f\nf, \vf)_{\stokesbdy}.$$
