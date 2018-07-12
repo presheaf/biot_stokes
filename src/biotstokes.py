@@ -17,11 +17,17 @@ logging.getLogger('FFC').setLevel(logging.CRITICAL)
 
 
 
-dt = 1E-2
-Nt = 100
-T = Nt * dt
+# dt = 1E-2
+# Nt = 100
+# T = Nt * dt
+# N_periods = 2
 
-N_periods = 2
+dt = 1E-1
+T = 20
+Nt = int(T/dt)
+
+N_periods = int(T/1.6)          # heartbeats at 100 bpm
+
 
 class BiotStokesProblem(object):
     @staticmethod
@@ -30,7 +36,7 @@ class BiotStokesProblem(object):
             "dt": 1.,
             "alpha": 1,
             "s0": 1.,
-            "mu": 1.,
+            "mu_f": 1.,
             "mu_p": 1,
             "lbd_p": 1.,
             "K": 1,
@@ -50,7 +56,7 @@ class BiotStokesProblem(object):
             # "s0": 1/lbd_p,
 
             # viscosity of water (Wikipedia)
-            "mu": 0.8E-3,     # Pa*s
+            "mu_f": 0.8E-3,     # Pa*s
 
             # (Stoverud, Darcis, Helmig, Hassanizadeh 2012)
             "mu_p": 1786,       # Pa
@@ -166,18 +172,45 @@ class BiotStokesProblem(object):
         First returned value is initial conditions."""
 
         # names of params
-
+        # print("Using dt = {}").format(dt)
         dt = self.params["dt"]
+        # print("Using dt = {}").format(dt)
+
         alpha = self.params["alpha"]
         alpha_BJS = self.params["alpha_BJS"]
         s0 = self.params["s0"]
-        mu = self.params["mu"]
+        mu_f = self.params["mu_f"]
         mu_p = self.params["mu_p"]
         lbd_p = self.params["lbd_p"]
-        K = self.params["K"]
+        _K = self.params["K"]
         Cp = self.params["Cp"]
 
-        C_BJS = (mu * alpha_BJS) / sqrt(K)
+        C_BJS = (mu_f * alpha_BJS) / sqrt(_K)
+
+
+
+        # # set permeability to something else on vessel wall
+        # KM, K0 = 0.1*_K, _K
+        # D = self.domain.D_tunnel
+        # w = 1
+        # wpDh = (w+D)/2
+        # class Permeability(Expression):
+        #     def eval(self, value, x):
+        #         if x[1] > wpDh or x[1] < -wpDh:
+        #             value[0] = K0
+        #         else:
+        #             value[0] = KM
+
+        # K = Permeability(degree=3)
+        # K = interpolate(K, FunctionSpace(self.domain.porous_domain, "CG", 1)) # performance?
+        # File("permeability.pvd") << K
+
+        # fuck the vessel wall
+        K = Constant(_K)
+
+        self.params["K"] = K
+
+                
 
         # names of things needed to build matrices
         dxGamma = Measure("dx", domain=self.domain.interface)
@@ -206,25 +239,24 @@ class BiotStokesProblem(object):
         n_Gamma_f = self.domain.interface_normal_f
         n_Gamma_p = self.domain.interface_normal_p
 
-
         # should be removed when not in the MMS domain
+        # D = self.domain.D_tunnel
+        # assert n_Gamma_f(Point(0, D/2.))[1] == 1
+        # assert n_Gamma_f(Point(0, -D/2.))[1] == -1
+        # # assert n_Gamma_p(Point(0, 1/3.))[1] == -1
 
-        # assert n_Gamma_f(Point(0, 1/3.))[1] == 1
-        # assert n_Gamma_p(Point(0, 1/3.))[1] == -1
-
-        # tau = Constant(((0, -1),
-        #                 (1, 0))) * n_Gamma_f
+        # # tau = Constant(((0, -1),
+        # #                 (1, 0))) * n_Gamma_f
 
         Tup = Trace(up, self.domain.interface)
         Tvp = Trace(vp, self.domain.interface)
 
         # a bunch of forms
-        af = Constant(2 * mu) * inner(sym(grad(uf)),
-                                        sym(grad(vf))) * dxStokes
+        af = Constant(2 * mu_f) * inner(sym(grad(uf)), sym(grad(vf))) * dxStokes
 
         mpp = pp * wp * dx
 
-        adp = Constant(mu / K) * inner(up, vp) * dxDarcy
+        adp = Constant(mu_f) / K * inner(up, vp) * dxDarcy
         aep = (
             Constant(2 * mu_p) * inner(sym(grad(dp)), sym(grad(ep))) * dxDarcy
             + Constant(lbd_p) * inner(div(dp), div(ep)) * dxDarcy
@@ -265,7 +297,7 @@ class BiotStokesProblem(object):
         a = [
             [adp, bpvp, 0, 0, 0, npvp],
             [bpvpt, -Co(s0 / dt) * mpp, Co(alpha / dt) * bpept, 0, 0, 0],
-            [0, Constant(alpha / dt) * bpep, Co(1 / dt) * (aep + Co(1 / dt) * sepdp),
+            [0, Constant(alpha / dt) * bpep, Co(1 / dt) * (aep  + sepdp),
              -Co(1 / dt) * sepuf, 0, Co(1 / dt) * npep],
             [0, 0, Co(-1 / dt) * svfdp, af + svfuf, bf, nfvf],
             [0, 0, 0, bft, 0, 0],
@@ -327,14 +359,14 @@ class BiotStokesProblem(object):
             ) * mu * dxGamma
 
             # source terms
-            S_vp = inner(s_vp, vp) * dxDarcy
+            S_vp = (Constant(mu_f) / K) * inner(s_vp, vp) * dxDarcy
             S_wp = inner(s_wp, wp) * dxDarcy
             S_ep = inner(s_ep, ep) * dxDarcy
             S_vf = inner(s_vf, vf) * dxStokes
             S_wf = inner(s_wf, wf) * dxStokes
 
             L = [
-                L_Cp_vp + Constant(mu / K) * S_vp + darcy_neumann_terms,
+                L_Cp_vp + S_vp + darcy_neumann_terms,
                 -(bpp + S_wp),
                 Co(1 / dt) * (L_Cp_ep + S_ep + L_BJS_ep + biot_neumann_terms),
                 S_vf + L_BJS_vf + stokes_neumann_terms,
@@ -460,8 +492,8 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 
         stokes_neumann = Expression(
             (
-                ("-8*pi*mu*cos(pi*t) - exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])",                        "-pi*mu*sin(x[1])*cos(pi*t)"                     ),
-                (                      "-pi*mu*sin(x[1])*cos(pi*t)"                     ,               "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])"             )
+                ("-8*pi*mu_f*cos(pi*t) - exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])",                        "-pi*mu_f*sin(x[1])*cos(pi*t)"                     ),
+                (                      "-pi*mu_f*sin(x[1])*cos(pi*t)"                     ,               "-exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])"             )
             ), degree=6, t=0, **self.params
         )
 
@@ -477,7 +509,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         return exprs
 
     def exact_solution(self):
-        """ TODO: change this so that mu_p becomes mu where appropriate, """
+        """ TODO: change this so that mu_p becomes mu_f where appropriate, """
         up_e=Expression(
             (
                 "pi*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])",
@@ -500,16 +532,17 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
             ), degree=5, t=0, **self.params
         )
         pf_e=Expression(
-            "2*pi*mu*cos(pi*t) + exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0, **self.params
+            "2*pi*mu_f*cos(pi*t) + exp(t)*sin(pi*x[0])*cos((1.0/2.0)*pi*x[1])", degree=5, t=0, **self.params
         )
 
         return up_e, pp_e, dp_e, uf_e, pf_e
 
     def get_source_terms(self):
+        """TODO: check that swaps of mu_f, mu_p are appropriate"""
         s_vp = Expression(
             (
-                "pi*(K + mu_p)*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])/mu_p",
-                "(1.0/2.0)*pi*(-K + mu_p)*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])/mu_p"
+                "pi*(K + mu_f)*exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1])/mu_f",
+                "(1.0/2.0)*pi*(-K + mu_f)*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])/mu_f"
             ), degree=6, t=0, **self.params
         )
         s_wp = Expression(
@@ -523,7 +556,7 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
         )
         s_vf = Expression(
             (
-                "pi*(mu*cos(x[1])*cos(pi*t) + exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]))",
+                "pi*(mu_f*cos(x[1])*cos(pi*t) + exp(t)*cos(pi*x[0])*cos((1.0/2.0)*pi*x[1]))",
                 "-1.0/2.0*pi*exp(t)*sin(pi*x[0])*sin((1.0/2.0)*pi*x[1])"
             ), degree=6, t=0, **self.params
         )
@@ -566,8 +599,6 @@ class AmbartsumyanMMSProblem(BiotStokesProblem):
 class Tunnel2DProblem(BiotStokesProblem):
     def __init__(self, domain, params, p_in, p_zero, order=2):
         domain = domain
-        params = BiotStokesProblem.default_params()
-
         super(Tunnel2DProblem, self).__init__(
             domain, params, order=order)
 
@@ -578,9 +609,9 @@ class Tunnel2DProblem(BiotStokesProblem):
 
     
 
-        # neumann terms
+        # # neumann terms
         # darcy_neumann = Expression(
-        #     "p0", degree=5, t=0, p0=p_zero
+        #     "p0", degree=5, t=0, p0=0.8*p_zero
         # )
         # biot_neumann = Expression(
         #     (
@@ -591,19 +622,32 @@ class Tunnel2DProblem(BiotStokesProblem):
 
         # on right outlet, p = 0, on left, p = (1 + sin(N_periods*t))/2
         # TODO: divide by 2
-        p_bdy_string = "-(p*(L-x[0]) * (1 + sin(2*pi*t/T_end))/2. + p0)"
+        def stokes_bdy_pressure_expr_string():
+            interval_indicator = (
+                "(exp(2*(t - a)) * exp(2*(b - t))) "
+                "/ ((1 + exp(2*(t - a)))*(1 + exp(2*(b - t))))"
+            )
+            # p_bdy_string = "({} * 0.2 + 1) * ( -(p*(L-x[0]) * (1 + sin(2*pi*w*t))/2.)) - p0".format(interval_indicator)
+            # 1 * p for t outside [a, b], 1.2 * p for t in [a, b]
+            # p_bdy_string = "-(1 + 2*({})) * p * (L-x[0])/L - p0".format(interval_indicator)
+            p_bdy_string = "-(1 + 2*({})) * p * (L-x[0])/L - p0".format(interval_indicator)
+            # p_bdy_string = "({} * 0.2 + 1) * ( -(p*(L-x[0]) * (1 + sin(2*pi*w*t))/2.)) - p0".format(interval_indicator)
+            return p_bdy_string
+        p_bdy_string = stokes_bdy_pressure_expr_string()
         stokes_neumann = Expression(
             (                   # - because sigma_f is -p * I
                 (p_bdy_string, "0"),
                 ("0", p_bdy_string)
             ), degree=5, t=0, L = self.domain.L,
-            p=p_in, T_end=(Nt*params["dt"]/N_periods), p0 = p_zero
+            p=p_in, p0 = p_zero, w=(N_periods/(Nt*params["dt"])),
+            a=T*0.3, b=T*0.7
         )
         
-
         # self.add_neumann_bc("darcy", 2, darcy_neumann)
         # self.add_neumann_bc("biot", 2, biot_neumann)
         self.add_neumann_bc("stokes", 2, stokes_neumann)
+
+    
 
 
 def save_to_file(things, fs, names):
@@ -636,23 +680,25 @@ errs = {}
 import random
 brain_params["dt"] = dt
 
-L = 20
+L = 75
 D = 8
 N = 35
+R_out = 3
 
 MMHG = 133                      # mmHg in Pascal
 dpdx = 718/(0.65E3)             # pressure gradient in Pa/micron
 p_in = dpdx * L
 p_zero = 1 * MMHG
 
-domain = Tunnel2DDomain(N, L, D)
+
+domain = Tunnel2DDomain(N, L, D, R_out)
 problem = Tunnel2DProblem(domain, brain_params, p_in, p_zero, order=2)
 solution = problem.get_solver()
 
 
 for i in range(Nt + 1):
     t, funcs = solution.next()
-    print "\rDone with timestep {:>3d} of {}".format(i, Nt),
+    print "\rDone with timestep {:>3d} of {}  (t={:>5.4f})".format(i, Nt, t),
     save_to_file(funcs, solution_fs, names)
 
 # for N in [N0, 2 * N0]:
@@ -709,3 +755,15 @@ for i in range(Nt + 1):
 #     import math
 #     k = math.log(errs[N0][name] / errs[2 * N0][name]) / math.log(2)
 #     print "{}: {:.5f}".format(name, k)
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+# t = np.linspace(0, 20, 100)
+# a = 20 * 0.2
+# b = 20 * 0.7
+# y = np.exp(2*(t - a))/(1 + np.exp(2*(t - a))) * np.exp(2*(b - t))/(1 + np.exp(2*(b - t)))
+
+# plt.plot(t, y)
+# plt.savefig("tmp.png")
+# plt.close()
+                
